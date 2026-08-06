@@ -156,7 +156,11 @@ private class ServerProfileDialog(project: Project, existing: ServerProfile?) : 
 
     init {
         title = if (existing == null) MyMessageBundle.message("server.dialog.add") else MyMessageBundle.message("server.dialog.edit")
-        existing?.mappings?.forEach { mappingsModel.addRow(arrayOf(it.localPath, it.remotePath)) }
+        if (existing == null) {
+            mappingsModel.addRow(arrayOf("", ""))
+        } else {
+            existing.mappings.forEach { mappingsModel.addRow(arrayOf(it.localPath, it.remotePath)) }
+        }
         init()
     }
 
@@ -187,13 +191,25 @@ private class ServerProfileDialog(project: Project, existing: ServerProfile?) : 
             .panel
     }
 
-    override fun doValidate(): ValidationInfo? {
+    override fun doOKAction() {
         stopEditing()
+        val validation = validateProfile()
+        if (validation != null) {
+            setErrorText(validation.message)
+            validation.component?.requestFocusInWindow()
+            return
+        }
+        setErrorText(null)
+        super.doOKAction()
+    }
+
+    override fun doValidate(): ValidationInfo? = null
+
+    private fun validateProfile(): ValidationInfo? {
         if (nameField.text.isBlank()) return ValidationInfo(MyMessageBundle.message("validation.required"), nameField)
         if (hostField.text.isBlank()) return ValidationInfo(MyMessageBundle.message("validation.required"), hostField)
         if (usernameField.text.isBlank()) return ValidationInfo(MyMessageBundle.message("validation.required"), usernameField)
         if (passwordField.password.isEmpty()) return ValidationInfo(MyMessageBundle.message("validation.required"), passwordField)
-        if (mappingsModel.rowCount == 0) return ValidationInfo(MyMessageBundle.message("validation.mapping.required"), mappingsTable)
 
         val localPaths = mutableSetOf<String>()
         mappings().forEach { mapping ->
@@ -235,7 +251,7 @@ private class ServerProfileDialog(project: Project, existing: ServerProfile?) : 
                 localPath = PathMappingResolver.normalizeLocal(mappingsModel.getValueAt(row, 0)?.toString().orEmpty()),
                 remotePath = mappingsModel.getValueAt(row, 1)?.toString().orEmpty().trim(),
             )
-        }
+        }.filterNot { it.localPath.isBlank() && it.remotePath.isBlank() }
 
     private fun stopEditing() {
         if (mappingsTable.isEditing) mappingsTable.cellEditor.stopCellEditing()
