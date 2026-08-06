@@ -1,6 +1,7 @@
 package org.kavo.uploader
 
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
@@ -24,7 +25,13 @@ import org.kavo.uploader.upload.SftpUploadService
 import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.FlowLayout
+import java.awt.Toolkit
+import java.awt.datatransfer.DataFlavor
+import java.awt.datatransfer.StringSelection
+import java.awt.event.ActionEvent
+import java.awt.event.KeyEvent
 import java.util.UUID
+import javax.swing.AbstractAction
 import javax.swing.DefaultListCellRenderer
 import javax.swing.DefaultListModel
 import javax.swing.JButton
@@ -34,6 +41,7 @@ import javax.swing.JList
 import javax.swing.JPanel
 import javax.swing.JSpinner
 import javax.swing.JTable
+import javax.swing.KeyStroke
 import javax.swing.SpinnerNumberModel
 import javax.swing.table.DefaultTableModel
 
@@ -142,7 +150,9 @@ private class ServerProfileDialog(project: Project, existing: ServerProfile?) : 
     private val mappingsModel = object : DefaultTableModel(arrayOf("Project-relative path", "Remote directory"), 0) {
         override fun isCellEditable(row: Int, column: Int) = true
     }
-    private val mappingsTable = JTable(mappingsModel)
+    private val mappingsTable = JTable(mappingsModel).apply {
+        installCellClipboardActions(this)
+    }
 
     init {
         title = if (existing == null) MyMessageBundle.message("server.dialog.add") else MyMessageBundle.message("server.dialog.edit")
@@ -230,4 +240,35 @@ private class ServerProfileDialog(project: Project, existing: ServerProfile?) : 
     private fun stopEditing() {
         if (mappingsTable.isEditing) mappingsTable.cellEditor.stopCellEditing()
     }
+}
+
+private fun installCellClipboardActions(table: JTable) {
+    val shortcutMask = Toolkit.getDefaultToolkit().menuShortcutKeyMaskEx
+    val inputMap = table.getInputMap(JComponent.WHEN_FOCUSED)
+    val actionMap = table.actionMap
+
+    inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_C, shortcutMask), "copySelectedCell")
+    actionMap.put("copySelectedCell", object : AbstractAction() {
+        override fun actionPerformed(event: ActionEvent) {
+            val row = table.selectedRow
+            val column = table.selectedColumn
+            if (row < 0 || column < 0) return
+            val value = table.getValueAt(row, column)?.toString().orEmpty()
+            CopyPasteManager.getInstance().setContents(StringSelection(value))
+        }
+    })
+
+    inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_V, shortcutMask), "pasteSelectedCell")
+    actionMap.put("pasteSelectedCell", object : AbstractAction() {
+        override fun actionPerformed(event: ActionEvent) {
+            val row = table.selectedRow
+            val column = table.selectedColumn
+            if (row < 0 || column < 0) return
+            val value = CopyPasteManager.getInstance()
+                .getContents<String>(DataFlavor.stringFlavor)
+                ?.trim()
+                ?: return
+            table.setValueAt(value, row, column)
+        }
+    })
 }
