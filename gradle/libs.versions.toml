@@ -1,0 +1,7 @@
+[versions]
+junit = "4.13.2"
+jsch = "2.28.6"
+
+[libraries]
+junit = { module = "junit:junit", version.ref = "junit" }
+jsch = { module = "com.github.mwiede:jsch", version.ref = "jsch" }
