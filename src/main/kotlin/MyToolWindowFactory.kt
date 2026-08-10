@@ -9,6 +9,7 @@ import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
+import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.ui.FormBuilder
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBPasswordField
@@ -75,6 +76,9 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
                     serverList.selectedValue?.let {
                         settings.remove(it.id)
                         refresh()
+                        AppExecutorUtil.getAppExecutorService().execute {
+                            PasswordStore.remove(it.id)
+                        }
                     }
                 }
             })
@@ -94,21 +98,39 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
         val dialog = ServerProfileDialog(project, existing)
         if (!dialog.showAndGet()) return
         val profile = dialog.profile()
+        val password = dialog.password()
         settings.save(profile)
-        PasswordStore.set(profile.id, profile.username, dialog.password())
         refresh()
+        if (password != null) {
+            AppExecutorUtil.getAppExecutorService().execute {
+                try {
+                    PasswordStore.set(profile.id, profile.username, password)
+                } catch (error: Exception) {
+                    UploaderNotifications.error(
+                        project,
+                        MyMessageBundle.message(
+                            "password.save.failed",
+                            profile.name,
+                            error.message ?: error.javaClass.simpleName,
+                        ),
+                    )
+                }
+            }
+        }
     }
 
     private fun testConnection(profile: ServerProfile) {
-        val password = PasswordStore.get(profile.id)?.toByteArray()
-        if (password == null) {
-            UploaderNotifications.error(project, MyMessageBundle.message("error.password.missing", profile.name))
-            return
-        }
-
         object : Task.Backgroundable(project, MyMessageBundle.message("connection.testing", profile.name), true) {
             override fun run(indicator: ProgressIndicator) {
                 try {
+                    val password = PasswordStore.get(profile.id)?.toByteArray()
+                    if (password == null) {
+                        UploaderNotifications.error(
+                            project,
+                            MyMessageBundle.message("error.password.missing", profile.name),
+                        )
+                        return
+                    }
                     ApplicationManager.getApplication().getService(SftpUploadService::class.java)
                         .testConnection(profile, PasswordAuthentication(password))
                     UploaderNotifications.info(project, MyMessageBundle.message("connection.success", profile.name))
@@ -139,14 +161,13 @@ private class ServerRenderer : DefaultListCellRenderer() {
 }
 
 private class ServerProfileDialog(project: Project, existing: ServerProfile?) : DialogWrapper(project, true) {
+    private val isNewProfile = existing == null
     private val profileId = existing?.id ?: UUID.randomUUID().toString()
     private val nameField = JBTextField(existing?.name.orEmpty())
     private val hostField = JBTextField(existing?.host.orEmpty())
     private val portField = JSpinner(SpinnerNumberModel(existing?.port ?: 22, 1, 65535, 1))
     private val usernameField = JBTextField(existing?.username.orEmpty())
-    private val passwordField = JBPasswordField().apply {
-        text = existing?.let { PasswordStore.get(it.id) }.orEmpty()
-    }
+    private val passwordField = JBPasswordField()
     private val mappingsModel = object : DefaultTableModel(arrayOf("Project-relative path", "Remote directory"), 0) {
         override fun isCellEditable(row: Int, column: Int) = true
     }
@@ -185,7 +206,10 @@ private class ServerProfileDialog(project: Project, existing: ServerProfile?) : 
             .addLabeledComponent(MyMessageBundle.message("server.host"), hostField)
             .addLabeledComponent(MyMessageBundle.message("server.port"), portField)
             .addLabeledComponent(MyMessageBundle.message("server.username"), usernameField)
-            .addLabeledComponent(MyMessageBundle.message("server.password"), passwordField)
+            .addLabeledComponent(
+                MyMessageBundle.message(if (isNewProfile) "server.password" else "server.password.unchanged"),
+                passwordField,
+            )
             .addSeparator()
             .addLabeledComponentFillVertically(MyMessageBundle.message("server.mappings"), mappingPanel)
             .panel
@@ -209,7 +233,9 @@ private class ServerProfileDialog(project: Project, existing: ServerProfile?) : 
         if (nameField.text.isBlank()) return ValidationInfo(MyMessageBundle.message("validation.required"), nameField)
         if (hostField.text.isBlank()) return ValidationInfo(MyMessageBundle.message("validation.required"), hostField)
         if (usernameField.text.isBlank()) return ValidationInfo(MyMessageBundle.message("validation.required"), usernameField)
-        if (passwordField.password.isEmpty()) return ValidationInfo(MyMessageBundle.message("validation.required"), passwordField)
+        if (isNewProfile && passwordField.password.isEmpty()) {
+            return ValidationInfo(MyMessageBundle.message("validation.required"), passwordField)
+        }
 
         val localPaths = mutableSetOf<String>()
         mappings().forEach { mapping ->
@@ -243,7 +269,7 @@ private class ServerProfileDialog(project: Project, existing: ServerProfile?) : 
         )
     }
 
-    fun password(): String = passwordField.password.concatToString()
+    fun password(): String? = passwordField.password.concatToString().takeIf { it.isNotEmpty() }
 
     private fun mappings(): List<PathMapping> =
         (0 until mappingsModel.rowCount).map { row ->
