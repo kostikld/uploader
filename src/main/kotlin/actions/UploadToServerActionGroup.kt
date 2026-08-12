@@ -45,13 +45,8 @@ private class UploadToProfileAction(private val profile: ServerProfile) : AnActi
         val files = event.getData(CommonDataKeys.VIRTUAL_FILE_ARRAY)
         event.presentation.isEnabled = project != null &&
             !files.isNullOrEmpty() &&
-            files.all { !it.isDirectory && it.isInLocalFileSystem } &&
-            resolveRequests(project, files.map { Paths.get(it.path) }, profile) != null
-        event.presentation.description = if (event.presentation.isEnabled) {
-            MyMessageBundle.message("action.upload.description", profile.name)
-        } else {
-            MyMessageBundle.message("action.upload.unmapped")
-        }
+            files.all { !it.isDirectory && it.isInLocalFileSystem }
+        event.presentation.description = MyMessageBundle.message("action.upload.description", profile.name)
     }
 
     override fun actionPerformed(event: AnActionEvent) {
@@ -62,15 +57,18 @@ private class UploadToProfileAction(private val profile: ServerProfile) : AnActi
             UploaderNotifications.error(project, MyMessageBundle.message("upload.no.mapping", profile.name))
             return
         }
-        val password = PasswordStore.get(profile.id)?.toByteArray()
-        if (password == null) {
-            UploaderNotifications.error(project, MyMessageBundle.message("error.password.missing", profile.name))
-            return
-        }
 
         object : Task.Backgroundable(project, MyMessageBundle.message("upload.progress", profile.name), true) {
             override fun run(indicator: ProgressIndicator) {
                 try {
+                    val password = PasswordStore.get(profile.id)?.toByteArray()
+                    if (password == null) {
+                        UploaderNotifications.error(
+                            project,
+                            MyMessageBundle.message("error.password.missing", profile.name),
+                        )
+                        return
+                    }
                     ApplicationManager.getApplication().getService(SftpUploadService::class.java).upload(
                         profile,
                         PasswordAuthentication(password),

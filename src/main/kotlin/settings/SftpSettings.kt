@@ -52,7 +52,6 @@ class SftpSettings : PersistentStateComponent<SftpSettingsState> {
 
     fun remove(profileId: String) {
         state.servers.removeIf { it.id == profileId }
-        PasswordStore.remove(profileId)
     }
 
     companion object {

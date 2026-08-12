@@ -1,6 +1,7 @@
 package org.kavo.uploader
 
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.ide.CopyPasteManager
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
@@ -8,6 +9,7 @@ import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
+import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.ui.FormBuilder
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBPasswordField
@@ -24,7 +26,13 @@ import org.kavo.uploader.upload.SftpUploadService
 import java.awt.BorderLayout
 import java.awt.Component
 import java.awt.FlowLayout
+import java.awt.Toolkit
+import java.awt.datatransfer.DataFlavor
+import java.awt.datatransfer.StringSelection
+import java.awt.event.ActionEvent
+import java.awt.event.KeyEvent
 import java.util.UUID
+import javax.swing.AbstractAction
 import javax.swing.DefaultListCellRenderer
 import javax.swing.DefaultListModel
 import javax.swing.JButton
@@ -34,6 +42,7 @@ import javax.swing.JList
 import javax.swing.JPanel
 import javax.swing.JSpinner
 import javax.swing.JTable
+import javax.swing.KeyStroke
 import javax.swing.SpinnerNumberModel
 import javax.swing.table.DefaultTableModel
 
@@ -67,6 +76,9 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
                     serverList.selectedValue?.let {
                         settings.remove(it.id)
                         refresh()
+                        AppExecutorUtil.getAppExecutorService().execute {
+                            PasswordStore.remove(it.id)
+                        }
                     }
                 }
             })
@@ -86,21 +98,39 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
         val dialog = ServerProfileDialog(project, existing)
         if (!dialog.showAndGet()) return
         val profile = dialog.profile()
+        val password = dialog.password()
         settings.save(profile)
-        PasswordStore.set(profile.id, profile.username, dialog.password())
         refresh()
+        if (password != null) {
+            AppExecutorUtil.getAppExecutorService().execute {
+                try {
+                    PasswordStore.set(profile.id, profile.username, password)
+                } catch (error: Exception) {
+                    UploaderNotifications.error(
+                        project,
+                        MyMessageBundle.message(
+                            "password.save.failed",
+                            profile.name,
+                            error.message ?: error.javaClass.simpleName,
+                        ),
+                    )
+                }
+            }
+        }
     }
 
     private fun testConnection(profile: ServerProfile) {
-        val password = PasswordStore.get(profile.id)?.toByteArray()
-        if (password == null) {
-            UploaderNotifications.error(project, MyMessageBundle.message("error.password.missing", profile.name))
-            return
-        }
-
         object : Task.Backgroundable(project, MyMessageBundle.message("connection.testing", profile.name), true) {
             override fun run(indicator: ProgressIndicator) {
                 try {
+                    val password = PasswordStore.get(profile.id)?.toByteArray()
+                    if (password == null) {
+                        UploaderNotifications.error(
+                            project,
+                            MyMessageBundle.message("error.password.missing", profile.name),
+                        )
+                        return
+                    }
                     ApplicationManager.getApplication().getService(SftpUploadService::class.java)
                         .testConnection(profile, PasswordAuthentication(password))
                     UploaderNotifications.info(project, MyMessageBundle.message("connection.success", profile.name))
@@ -131,22 +161,27 @@ private class ServerRenderer : DefaultListCellRenderer() {
 }
 
 private class ServerProfileDialog(project: Project, existing: ServerProfile?) : DialogWrapper(project, true) {
+    private val isNewProfile = existing == null
     private val profileId = existing?.id ?: UUID.randomUUID().toString()
     private val nameField = JBTextField(existing?.name.orEmpty())
     private val hostField = JBTextField(existing?.host.orEmpty())
     private val portField = JSpinner(SpinnerNumberModel(existing?.port ?: 22, 1, 65535, 1))
     private val usernameField = JBTextField(existing?.username.orEmpty())
-    private val passwordField = JBPasswordField().apply {
-        text = existing?.let { PasswordStore.get(it.id) }.orEmpty()
-    }
+    private val passwordField = JBPasswordField()
     private val mappingsModel = object : DefaultTableModel(arrayOf("Project-relative path", "Remote directory"), 0) {
         override fun isCellEditable(row: Int, column: Int) = true
     }
-    private val mappingsTable = JTable(mappingsModel)
+    private val mappingsTable = JTable(mappingsModel).apply {
+        installCellClipboardActions(this)
+    }
 
     init {
         title = if (existing == null) MyMessageBundle.message("server.dialog.add") else MyMessageBundle.message("server.dialog.edit")
-        existing?.mappings?.forEach { mappingsModel.addRow(arrayOf(it.localPath, it.remotePath)) }
+        if (existing == null) {
+            mappingsModel.addRow(arrayOf("", ""))
+        } else {
+            existing.mappings.forEach { mappingsModel.addRow(arrayOf(it.localPath, it.remotePath)) }
+        }
         init()
     }
 
@@ -171,19 +206,36 @@ private class ServerProfileDialog(project: Project, existing: ServerProfile?) : 
             .addLabeledComponent(MyMessageBundle.message("server.host"), hostField)
             .addLabeledComponent(MyMessageBundle.message("server.port"), portField)
             .addLabeledComponent(MyMessageBundle.message("server.username"), usernameField)
-            .addLabeledComponent(MyMessageBundle.message("server.password"), passwordField)
+            .addLabeledComponent(
+                MyMessageBundle.message(if (isNewProfile) "server.password" else "server.password.unchanged"),
+                passwordField,
+            )
             .addSeparator()
             .addLabeledComponentFillVertically(MyMessageBundle.message("server.mappings"), mappingPanel)
             .panel
     }
 
-    override fun doValidate(): ValidationInfo? {
+    override fun doOKAction() {
         stopEditing()
+        val validation = validateProfile()
+        if (validation != null) {
+            setErrorText(validation.message)
+            validation.component?.requestFocusInWindow()
+            return
+        }
+        setErrorText(null)
+        super.doOKAction()
+    }
+
+    override fun doValidate(): ValidationInfo? = null
+
+    private fun validateProfile(): ValidationInfo? {
         if (nameField.text.isBlank()) return ValidationInfo(MyMessageBundle.message("validation.required"), nameField)
         if (hostField.text.isBlank()) return ValidationInfo(MyMessageBundle.message("validation.required"), hostField)
         if (usernameField.text.isBlank()) return ValidationInfo(MyMessageBundle.message("validation.required"), usernameField)
-        if (passwordField.password.isEmpty()) return ValidationInfo(MyMessageBundle.message("validation.required"), passwordField)
-        if (mappingsModel.rowCount == 0) return ValidationInfo(MyMessageBundle.message("validation.mapping.required"), mappingsTable)
+        if (isNewProfile && passwordField.password.isEmpty()) {
+            return ValidationInfo(MyMessageBundle.message("validation.required"), passwordField)
+        }
 
         val localPaths = mutableSetOf<String>()
         mappings().forEach { mapping ->
@@ -217,7 +269,7 @@ private class ServerProfileDialog(project: Project, existing: ServerProfile?) : 
         )
     }
 
-    fun password(): String = passwordField.password.concatToString()
+    fun password(): String? = passwordField.password.concatToString().takeIf { it.isNotEmpty() }
 
     private fun mappings(): List<PathMapping> =
         (0 until mappingsModel.rowCount).map { row ->
@@ -225,9 +277,40 @@ private class ServerProfileDialog(project: Project, existing: ServerProfile?) : 
                 localPath = PathMappingResolver.normalizeLocal(mappingsModel.getValueAt(row, 0)?.toString().orEmpty()),
                 remotePath = mappingsModel.getValueAt(row, 1)?.toString().orEmpty().trim(),
             )
-        }
+        }.filterNot { it.localPath.isBlank() && it.remotePath.isBlank() }
 
     private fun stopEditing() {
         if (mappingsTable.isEditing) mappingsTable.cellEditor.stopCellEditing()
     }
+}
+
+private fun installCellClipboardActions(table: JTable) {
+    val shortcutMask = Toolkit.getDefaultToolkit().menuShortcutKeyMaskEx
+    val inputMap = table.getInputMap(JComponent.WHEN_FOCUSED)
+    val actionMap = table.actionMap
+
+    inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_C, shortcutMask), "copySelectedCell")
+    actionMap.put("copySelectedCell", object : AbstractAction() {
+        override fun actionPerformed(event: ActionEvent) {
+            val row = table.selectedRow
+            val column = table.selectedColumn
+            if (row < 0 || column < 0) return
+            val value = table.getValueAt(row, column)?.toString().orEmpty()
+            CopyPasteManager.getInstance().setContents(StringSelection(value))
+        }
+    })
+
+    inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_V, shortcutMask), "pasteSelectedCell")
+    actionMap.put("pasteSelectedCell", object : AbstractAction() {
+        override fun actionPerformed(event: ActionEvent) {
+            val row = table.selectedRow
+            val column = table.selectedColumn
+            if (row < 0 || column < 0) return
+            val value = CopyPasteManager.getInstance()
+                .getContents<String>(DataFlavor.stringFlavor)
+                ?.trim()
+                ?: return
+            table.setValueAt(value, row, column)
+        }
+    })
 }
