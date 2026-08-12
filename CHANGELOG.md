@@ -1,8 +1,10 @@
 <!-- Keep a Changelog guide -> https://keepachangelog.com -->
 
-# Uoloader Changelog
+# Uploader Changelog
 
-## [Unreleased]
+## Unreleased
+
+## 1.0.0-SNAPSHOT - 2026-08-10
 
 ### Added
 
