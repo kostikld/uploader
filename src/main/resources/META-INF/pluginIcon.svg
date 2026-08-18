@@ -1,12 +1,326 @@
-<svg width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path d="M32.0845 7.94025V4H24.0203V7.9896H16.029V4H7.91553V7.94025H4V36H16.0044V32.0045C16.0058 30.9457 16.4274 29.9308 17.1766 29.1826C17.9258 28.4345 18.9412 28.0143 20 28.0143C21.0588 28.0143 22.0743 28.4345 22.8234 29.1826C23.5726 29.9308 23.9942 30.9457 23.9956 32.0045V36H36V7.94025H32.0845Z"
-          fill="url(#paint0_linear)"/>
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="512"
+     height="512"
+     viewBox="0 0 512 512">
+
     <defs>
-        <linearGradient id="paint0_linear" x1="2.94192" y1="4.89955" x2="37.7772" y2="39.7345"
-                        gradientUnits="userSpaceOnUse">
-            <stop offset="0.15937" stop-color="#3BEA62"/>
-            <stop offset="0.5404" stop-color="#3C99CC"/>
-            <stop offset="0.93739" stop-color="#6B57FF"/>
+        <!-- Background gradient -->
+        <linearGradient id="bgGradient"
+                        x1="0%" y1="0%"
+                        x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#ff1744"/>
+            <stop offset="45%" stop-color="#7c2cff"/>
+            <stop offset="100%" stop-color="#00cfff"/>
         </linearGradient>
+
+        <!-- Main panel -->
+        <linearGradient id="panelGradient"
+                        x1="0%" y1="0%"
+                        x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#191919"/>
+            <stop offset="100%" stop-color="#080808"/>
+        </linearGradient>
+
+        <!-- Server gradient -->
+        <linearGradient id="serverGradient"
+                        x1="0%" y1="0%"
+                        x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#303030"/>
+            <stop offset="100%" stop-color="#111111"/>
+        </linearGradient>
+
+        <!-- Arrow gradient -->
+        <linearGradient id="arrowGradient"
+                        x1="0%" y1="0%"
+                        x2="100%" y2="0%">
+            <stop offset="0%" stop-color="#1677ff"/>
+            <stop offset="100%" stop-color="#4ca0ff"/>
+        </linearGradient>
+
+        <!-- Lock gradient -->
+        <linearGradient id="lockGradient"
+                        x1="0%" y1="0%"
+                        x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#5da2ff"/>
+            <stop offset="100%" stop-color="#1764d8"/>
+        </linearGradient>
+
+        <!-- File gradient -->
+        <linearGradient id="fileGradient"
+                        x1="0%" y1="0%"
+                        x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#ffffff"/>
+            <stop offset="100%" stop-color="#dedede"/>
+        </linearGradient>
+
+        <!-- Shadow -->
+        <filter id="shadow"
+                x="-30%"
+                y="-30%"
+                width="160%"
+                height="160%">
+            <feDropShadow dx="0"
+                          dy="8"
+                          stdDeviation="10"
+                          flood-opacity="0.35"/>
+        </filter>
+
+        <!-- Soft glow -->
+        <filter id="glow"
+                x="-50%"
+                y="-50%"
+                width="200%"
+                height="200%">
+            <feGaussianBlur stdDeviation="4"
+                            result="blur"/>
+            <feMerge>
+                <feMergeNode in="blur"/>
+                <feMergeNode in="SourceGraphic"/>
+            </feMerge>
+        </filter>
     </defs>
+
+    <!-- ========================================================= -->
+    <!-- Background -->
+    <!-- ========================================================= -->
+
+    <rect x="20"
+          y="20"
+          width="472"
+          height="472"
+          rx="90"
+          fill="url(#bgGradient)"/>
+
+    <!-- Dark main panel -->
+    <rect x="65"
+          y="75"
+          width="382"
+          height="382"
+          rx="55"
+          fill="url(#panelGradient)"
+          filter="url(#shadow)"/>
+
+    <!-- ========================================================= -->
+    <!-- Network lines -->
+    <!-- ========================================================= -->
+
+    <g opacity="0.25"
+       stroke="#168cff"
+       stroke-width="3"
+       fill="none">
+
+        <path d="M285 150 L350 150 L385 115"/>
+        <path d="M300 185 L350 185 L385 220"/>
+        <path d="M280 300 L340 300 L380 270"/>
+    </g>
+
+    <g fill="#00bfff" opacity="0.7">
+        <circle cx="350" cy="150" r="6"/>
+        <circle cx="385" cy="115" r="7"/>
+        <circle cx="350" cy="185" r="6"/>
+        <circle cx="385" cy="220" r="7"/>
+        <circle cx="340" cy="300" r="6"/>
+    </g>
+
+    <!-- ========================================================= -->
+    <!-- Files -->
+    <!-- ========================================================= -->
+
+    <!-- Back file -->
+    <path d="
+        M105 160
+        L105 275
+        Q105 285 115 285
+        L190 285
+        Q200 285 200 275
+        L200 185
+        L175 160
+        Z"
+          fill="#555"
+          opacity="0.5"/>
+
+    <!-- Front document -->
+    <path d="
+        M125 145
+        L205 145
+        L235 175
+        L235 300
+        Q235 310 225 310
+        L125 310
+        Q115 310 115 300
+        L115 155
+        Q115 145 125 145
+        Z"
+          fill="url(#fileGradient)"
+          filter="url(#shadow)"/>
+
+    <!-- Document folded corner -->
+    <path d="
+        M205 145
+        L205 170
+        Q205 175 210 175
+        L235 175
+        Z"
+          fill="#cfcfcf"/>
+
+    <!-- Document lines -->
+    <g stroke="#a9adb4"
+       stroke-width="8"
+       stroke-linecap="round">
+
+        <line x1="140" y1="215" x2="205" y2="215"/>
+        <line x1="140" y1="238" x2="195" y2="238"/>
+        <line x1="140" y1="261" x2="180" y2="261"/>
+
+    </g>
+
+    <!-- ========================================================= -->
+    <!-- Upload arrow -->
+    <!-- ========================================================= -->
+
+    <path d="
+        M115 335
+        C170 290 225 285 295 315
+        L280 290
+        L335 320
+        L280 350
+        L293 325
+        C230 305 180 315 130 350
+        Z"
+          fill="url(#arrowGradient)"
+          filter="url(#shadow)"/>
+
+    <!-- ========================================================= -->
+    <!-- Server stack -->
+    <!-- ========================================================= -->
+
+    <g filter="url(#shadow)">
+
+        <!-- Server 1 -->
+        <rect x="270"
+              y="165"
+              width="140"
+              height="55"
+              rx="14"
+              fill="url(#serverGradient)"
+              stroke="#444"
+              stroke-width="2"/>
+
+        <!-- Server 2 -->
+        <rect x="270"
+              y="230"
+              width="140"
+              height="55"
+              rx="14"
+              fill="url(#serverGradient)"
+              stroke="#444"
+              stroke-width="2"/>
+
+        <!-- Server 3 -->
+        <rect x="270"
+              y="295"
+              width="140"
+              height="55"
+              rx="14"
+              fill="url(#serverGradient)"
+              stroke="#444"
+              stroke-width="2"/>
+
+    </g>
+
+    <!-- Server slots -->
+    <g stroke="#666"
+       stroke-width="6"
+       stroke-linecap="round">
+
+        <line x1="292" y1="192" x2="330" y2="192"/>
+        <line x1="292" y1="257" x2="330" y2="257"/>
+        <line x1="292" y1="322" x2="330" y2="322"/>
+
+    </g>
+
+    <!-- Server status lights -->
+    <g filter="url(#glow)">
+        <circle cx="355" cy="192" r="6" fill="#32e875"/>
+        <circle cx="375" cy="192" r="6" fill="#ffd43b"/>
+
+        <circle cx="355" cy="257" r="6" fill="#32e875"/>
+        <circle cx="375" cy="257" r="6" fill="#ffd43b"/>
+
+        <circle cx="355" cy="322" r="6" fill="#32e875"/>
+        <circle cx="375" cy="322" r="6" fill="#ffd43b"/>
+    </g>
+
+    <!-- ========================================================= -->
+    <!-- Lock -->
+    <!-- ========================================================= -->
+
+    <!-- Shackle -->
+    <path d="
+        M350 160
+        V135
+        C350 105 395 105 395 135
+        V160"
+          fill="none"
+          stroke="#ffffff"
+          stroke-width="14"
+          stroke-linecap="round"/>
+
+    <!-- Lock body -->
+    <rect x="335"
+          y="145"
+          width="75"
+          height="65"
+          rx="12"
+          fill="url(#lockGradient)"
+          filter="url(#shadow)"/>
+
+    <!-- Keyhole -->
+    <circle cx="372.5"
+            cy="170"
+            r="8"
+            fill="#ffffff"/>
+
+    <path d="
+        M368 175
+        L365 193
+        L380 193
+        L377 175
+        Z"
+          fill="#ffffff"/>
+
+    <!-- ========================================================= -->
+    <!-- SSH / SFTP label -->
+    <!-- ========================================================= -->
+
+    <rect x="105"
+          y="385"
+          width="275"
+          height="48"
+          rx="24"
+          fill="#101b31"
+          stroke="#347ff5"
+          stroke-width="3"/>
+
+    <!-- Terminal prompt -->
+    <text x="125"
+          y="417"
+          font-family="monospace"
+          font-size="26"
+          font-weight="bold"
+          fill="#4d9aff">
+        &gt;_
+    </text>
+
+    <!-- SSH / SFTP -->
+    <text x="175"
+          y="416"
+          font-family="Arial, Helvetica, sans-serif"
+          font-size="21"
+          font-weight="700"
+          letter-spacing="1"
+          fill="#ffffff">
+        SSH / SFTP
+    </text>
+
 </svg>
