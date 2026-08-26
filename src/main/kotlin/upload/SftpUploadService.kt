@@ -1,6 +1,7 @@
 package org.kavo.uploader.upload
 
 import com.intellij.openapi.components.Service
+import com.jcraft.jsch.ChannelExec
 import com.jcraft.jsch.ChannelSftp
 import com.jcraft.jsch.JSch
 import com.jcraft.jsch.Session
@@ -23,6 +24,13 @@ class PasswordAuthentication(private val password: ByteArray) : SftpAuthenticati
         session.setPassword(password)
     }
 }
+
+internal fun formatElapsedTime(elapsedMillis: Long): String {
+    val elapsedSeconds = (elapsedMillis.coerceAtLeast(0) / 1_000).toInt()
+    return "%02d:%02d".format(elapsedSeconds / 60, elapsedSeconds % 60)
+}
+
+internal fun isSuccessfulCommandExit(exitStatus: Int): Boolean = exitStatus == 0
 
 @Service(Service.Level.APP)
 class SftpUploadService {
@@ -54,24 +62,58 @@ class SftpUploadService {
         withChannel(profile, authentication) { channel -> channel.pwd() }
     }
 
+    fun executeCommand(
+        profile: ServerProfile,
+        authentication: SftpAuthentication,
+        command: String,
+        checkCanceled: () -> Unit = {},
+    ): Int = withSession(profile, authentication) { session ->
+        var channel: ChannelExec? = null
+        try {
+            checkCanceled()
+            channel = session.openChannel("exec") as ChannelExec
+            channel.setCommand(command)
+            channel.connect(CONNECT_TIMEOUT_MS)
+            while (!channel.isClosed) {
+                checkCanceled()
+                Thread.sleep(COMMAND_POLL_INTERVAL_MS)
+            }
+            checkCanceled()
+            channel.exitStatus
+        } finally {
+            if (channel?.isConnected == true) channel.disconnect()
+        }
+    }
+
     private fun <T> withChannel(
         profile: ServerProfile,
         authentication: SftpAuthentication,
         action: (ChannelSftp) -> T,
+    ): T = withSession(profile, authentication) { session ->
+        var channel: ChannelSftp? = null
+        try {
+            channel = session.openChannel("sftp") as ChannelSftp
+            channel.connect(CONNECT_TIMEOUT_MS)
+            action(channel)
+        } finally {
+            if (channel?.isConnected == true) channel.disconnect()
+        }
+    }
+
+    private fun <T> withSession(
+        profile: ServerProfile,
+        authentication: SftpAuthentication,
+        action: (Session) -> T,
     ): T {
         val session = JSch().getSession(profile.username, profile.host, profile.port)
         authentication.configure(session)
         // A host-key policy can be added to the profile model without changing authentication.
         session.setConfig("StrictHostKeyChecking", "no")
 
-        var channel: ChannelSftp? = null
         try {
             session.connect(CONNECT_TIMEOUT_MS)
-            channel = session.openChannel("sftp") as ChannelSftp
-            channel.connect(CONNECT_TIMEOUT_MS)
-            return action(channel)
+            return action(session)
         } finally {
-            if (channel?.isConnected == true) channel.disconnect()
             if (session.isConnected) session.disconnect()
         }
     }
@@ -92,5 +134,6 @@ class SftpUploadService {
 
     private companion object {
         const val CONNECT_TIMEOUT_MS = 15_000
+        const val COMMAND_POLL_INTERVAL_MS = 100L
     }
 }
