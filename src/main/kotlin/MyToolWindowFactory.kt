@@ -157,20 +157,42 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
                         return
                     }
                     updateProgress()
-                    val exitStatus = ApplicationManager.getApplication().getService(SftpUploadService::class.java)
+                    val result = ApplicationManager.getApplication().getService(SftpUploadService::class.java)
                         .executeCommand(profile, PasswordAuthentication(password), action.command) {
                             indicator.checkCanceled()
                             updateProgress()
                         }
-                    if (isSuccessfulCommandExit(exitStatus)) {
+                    val elapsedMillis = (System.nanoTime() - startedAt) / 1_000_000
+                    val status = if (isSuccessfulCommandExit(result.exitStatus)) {
+                        MyMessageBundle.message("action.execution.success", action.name, profile.name)
+                    } else {
+                        MyMessageBundle.message(
+                            "action.execution.exit.failed",
+                            action.name,
+                            profile.name,
+                            result.exitStatus,
+                        )
+                    }
+                    val notification = formatActionExecutionNotification(
+                        exitStatus = result.exitStatus,
+                        status = status,
+                        standardOutput = result.standardOutput,
+                        isOutputTruncated = result.isOutputTruncated,
+                        truncationMarker = MyMessageBundle.message("action.execution.output.truncated"),
+                        completion = MyMessageBundle.message(
+                            "action.execution.completed",
+                            formatElapsedTime(elapsedMillis),
+                        ),
+                    )
+                    if (notification.isInformational) {
                         UploaderNotifications.info(
                             project,
-                            MyMessageBundle.message("action.execution.success", action.name, profile.name),
+                            notification.content,
                         )
                     } else {
                         UploaderNotifications.error(
                             project,
-                            MyMessageBundle.message("action.execution.exit.failed", action.name, profile.name, exitStatus),
+                            notification.content,
                         )
                     }
                 } catch (_: ProcessCanceledException) {

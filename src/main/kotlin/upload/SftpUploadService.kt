@@ -7,6 +7,9 @@ import com.jcraft.jsch.JSch
 import com.jcraft.jsch.Session
 import com.jcraft.jsch.SftpException
 import org.kavo.uploader.settings.ServerProfile
+import java.io.ByteArrayOutputStream
+import java.io.InputStream
+import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -14,6 +17,34 @@ data class UploadRequest(
     val localFile: Path,
     val remoteFile: String,
 )
+
+data class CommandExecutionResult(
+    val exitStatus: Int,
+    val standardOutput: String,
+    val isOutputTruncated: Boolean,
+)
+
+internal const val MAX_STANDARD_OUTPUT_BYTES = 64 * 1024
+
+internal class BoundedStandardOutput(private val maximumBytes: Int) {
+    private val bytes = ByteArrayOutputStream(maximumBytes)
+
+    var isTruncated = false
+        private set
+
+    init {
+        require(maximumBytes >= 0) { "Maximum output size must not be negative" }
+    }
+
+    fun append(source: ByteArray, offset: Int, length: Int) {
+        val remainingBytes = maximumBytes - bytes.size()
+        val bytesToRetain = length.coerceAtMost(remainingBytes.coerceAtLeast(0))
+        if (bytesToRetain > 0) bytes.write(source, offset, bytesToRetain)
+        if (bytesToRetain < length) isTruncated = true
+    }
+
+    fun decoded(): String = bytes.toString(StandardCharsets.UTF_8)
+}
 
 fun interface SftpAuthentication {
     fun configure(session: Session)
@@ -67,19 +98,28 @@ class SftpUploadService {
         authentication: SftpAuthentication,
         command: String,
         checkCanceled: () -> Unit = {},
-    ): Int = withSession(profile, authentication) { session ->
+    ): CommandExecutionResult = withSession(profile, authentication) { session ->
         var channel: ChannelExec? = null
         try {
             checkCanceled()
             channel = session.openChannel("exec") as ChannelExec
             channel.setCommand(command)
+            val standardOutput = BoundedStandardOutput(MAX_STANDARD_OUTPUT_BYTES)
+            val outputStream = channel.inputStream
+            val buffer = ByteArray(STANDARD_OUTPUT_READ_BUFFER_BYTES)
             channel.connect(CONNECT_TIMEOUT_MS)
             while (!channel.isClosed) {
+                drainAvailable(outputStream, buffer, standardOutput)
                 checkCanceled()
                 Thread.sleep(COMMAND_POLL_INTERVAL_MS)
             }
+            drainToEnd(outputStream, buffer, standardOutput)
             checkCanceled()
-            channel.exitStatus
+            CommandExecutionResult(
+                exitStatus = channel.exitStatus,
+                standardOutput = standardOutput.decoded(),
+                isOutputTruncated = standardOutput.isTruncated,
+            )
         } finally {
             if (channel?.isConnected == true) channel.disconnect()
         }
@@ -132,8 +172,25 @@ class SftpUploadService {
         }
     }
 
+    private fun drainAvailable(input: InputStream, buffer: ByteArray, output: BoundedStandardOutput) {
+        while (input.available() > 0) {
+            val bytesRead = input.read(buffer, 0, minOf(buffer.size, input.available()))
+            if (bytesRead <= 0) return
+            output.append(buffer, 0, bytesRead)
+        }
+    }
+
+    private fun drainToEnd(input: InputStream, buffer: ByteArray, output: BoundedStandardOutput) {
+        while (true) {
+            val bytesRead = input.read(buffer)
+            if (bytesRead <= 0) return
+            output.append(buffer, 0, bytesRead)
+        }
+    }
+
     private companion object {
         const val CONNECT_TIMEOUT_MS = 15_000
         const val COMMAND_POLL_INTERVAL_MS = 100L
+        const val STANDARD_OUTPUT_READ_BUFFER_BYTES = 8 * 1024
     }
 }
