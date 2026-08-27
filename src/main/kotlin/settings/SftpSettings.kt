@@ -15,6 +15,28 @@ data class PathMapping(
     var remotePath: String = "",
 )
 
+data class ServerAction(
+    var id: String = UUID.randomUUID().toString(),
+    var name: String = "",
+    var command: String = "",
+)
+
+enum class ServerActionValidationError {
+    BLANK_NAME,
+    BLANK_COMMAND,
+    DUPLICATE_NAME,
+}
+
+fun validateServerActions(actions: List<ServerAction>): ServerActionValidationError? {
+    val names = mutableSetOf<String>()
+    actions.forEach { action ->
+        if (action.name.isBlank()) return ServerActionValidationError.BLANK_NAME
+        if (action.command.isBlank()) return ServerActionValidationError.BLANK_COMMAND
+        if (!names.add(action.name)) return ServerActionValidationError.DUPLICATE_NAME
+    }
+    return null
+}
+
 data class ServerProfile(
     var id: String = UUID.randomUUID().toString(),
     var name: String = "",
@@ -22,6 +44,7 @@ data class ServerProfile(
     var port: Int = 22,
     var username: String = "",
     var mappings: MutableList<PathMapping> = mutableListOf(),
+    var actions: MutableList<ServerAction> = mutableListOf(),
 )
 
 data class SftpSettingsState(
