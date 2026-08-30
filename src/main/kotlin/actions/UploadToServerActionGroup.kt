@@ -14,6 +14,7 @@ import org.kavo.uploader.UploaderNotifications
 import org.kavo.uploader.settings.PasswordStore
 import org.kavo.uploader.settings.ServerProfile
 import org.kavo.uploader.settings.SftpSettings
+import org.kavo.uploader.upload.ClassFileExpander
 import org.kavo.uploader.upload.PasswordAuthentication
 import org.kavo.uploader.upload.PathMappingResolver
 import org.kavo.uploader.upload.SftpUploadService
@@ -103,8 +104,9 @@ internal fun resolveRequests(
 ): List<UploadRequest>? {
     val basePath = project.basePath ?: return null
     val projectRoot = Paths.get(basePath)
-    return files.map { file ->
+    val expanded = ClassFileExpander.expand(files, SftpSettings.getInstance().withInnerClasses)
+    return expanded.map { file ->
         val remote = PathMappingResolver.resolve(projectRoot, file, profile.mappings) ?: return null
         UploadRequest(file, remote)
-    }
+     }
 }

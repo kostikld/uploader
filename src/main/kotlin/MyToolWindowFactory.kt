@@ -2,8 +2,8 @@ package org.kavo.uploader
 
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.ide.CopyPasteManager
-import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.ProcessCanceledException
+import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
@@ -11,50 +11,23 @@ import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.PopupHandler
-import com.intellij.util.concurrency.AppExecutorUtil
-import com.intellij.util.ui.FormBuilder
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBPasswordField
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextField
 import com.intellij.ui.content.ContentFactory
-import org.kavo.uploader.settings.PasswordStore
-import org.kavo.uploader.settings.PathMapping
-import org.kavo.uploader.settings.ServerAction
-import org.kavo.uploader.settings.ServerActionValidationError
-import org.kavo.uploader.settings.ServerProfile
-import org.kavo.uploader.settings.SftpSettings
-import org.kavo.uploader.settings.validateServerActions
-import org.kavo.uploader.upload.PasswordAuthentication
-import org.kavo.uploader.upload.PathMappingResolver
-import org.kavo.uploader.upload.SftpUploadService
-import org.kavo.uploader.upload.formatElapsedTime
-import org.kavo.uploader.upload.isSuccessfulCommandExit
-import java.awt.BorderLayout
-import java.awt.Component
-import java.awt.FlowLayout
-import java.awt.Point
-import java.awt.Toolkit
+import com.intellij.ui.table.JBTable
+import com.intellij.util.concurrency.AppExecutorUtil
+import com.intellij.util.ui.FormBuilder
+import org.kavo.uploader.settings.*
+import org.kavo.uploader.upload.*
+import java.awt.*
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
 import java.awt.event.ActionEvent
 import java.awt.event.KeyEvent
-import java.util.UUID
-import javax.swing.AbstractAction
-import javax.swing.DefaultListCellRenderer
-import javax.swing.DefaultListModel
-import javax.swing.JButton
-import javax.swing.JComponent
-import javax.swing.JLabel
-import javax.swing.JList
-import javax.swing.JMenu
-import javax.swing.JMenuItem
-import javax.swing.JPanel
-import javax.swing.JPopupMenu
-import javax.swing.JSpinner
-import javax.swing.JTable
-import javax.swing.KeyStroke
-import javax.swing.SpinnerNumberModel
+import java.util.*
+import javax.swing.*
 import javax.swing.table.DefaultTableModel
 
 class MyToolWindowFactory : ToolWindowFactory {
@@ -258,7 +231,11 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
                 } catch (error: Exception) {
                     UploaderNotifications.error(
                         project,
-                        MyMessageBundle.message("connection.failed", profile.name, error.message ?: error.javaClass.simpleName),
+                        MyMessageBundle.message(
+                            "connection.failed",
+                            profile.name,
+                            error.message ?: error.javaClass.simpleName
+                        ),
                     )
                 }
             }
@@ -292,7 +269,7 @@ private class ServerProfileDialog(project: Project, existing: ServerProfile?) : 
     private val mappingsModel = object : DefaultTableModel(arrayOf("Project-relative path", "Remote directory"), 0) {
         override fun isCellEditable(row: Int, column: Int) = true
     }
-    private val mappingsTable = JTable(mappingsModel).apply {
+    private val mappingsTable = JBTable(mappingsModel).apply {
         installCellClipboardActions(this)
     }
     private val actionsModel = object : DefaultTableModel(
@@ -305,13 +282,14 @@ private class ServerProfileDialog(project: Project, existing: ServerProfile?) : 
     ) {
         override fun isCellEditable(row: Int, column: Int) = column < 2
     }
-    private val actionsTable = JTable(actionsModel).apply {
+    private val actionsTable = JBTable(actionsModel).apply {
         columnModel.removeColumn(columnModel.getColumn(2))
         installCellClipboardActions(this)
     }
 
     init {
-        title = if (existing == null) MyMessageBundle.message("server.dialog.add") else MyMessageBundle.message("server.dialog.edit")
+        title =
+            if (existing == null) MyMessageBundle.message("server.dialog.add") else MyMessageBundle.message("server.dialog.edit")
         if (existing == null) {
             mappingsModel.addRow(arrayOf("", ""))
         } else {
@@ -383,7 +361,10 @@ private class ServerProfileDialog(project: Project, existing: ServerProfile?) : 
     private fun validateProfile(): ValidationInfo? {
         if (nameField.text.isBlank()) return ValidationInfo(MyMessageBundle.message("validation.required"), nameField)
         if (hostField.text.isBlank()) return ValidationInfo(MyMessageBundle.message("validation.required"), hostField)
-        if (usernameField.text.isBlank()) return ValidationInfo(MyMessageBundle.message("validation.required"), usernameField)
+        if (usernameField.text.isBlank()) return ValidationInfo(
+            MyMessageBundle.message("validation.required"),
+            usernameField
+        )
         if (isNewProfile && passwordField.password.isEmpty()) {
             return ValidationInfo(MyMessageBundle.message("validation.required"), passwordField)
         }
@@ -408,10 +389,13 @@ private class ServerProfileDialog(project: Project, existing: ServerProfile?) : 
         when (validateServerActions(actions())) {
             ServerActionValidationError.BLANK_NAME ->
                 return ValidationInfo(MyMessageBundle.message("validation.action.name.required"), actionsTable)
+
             ServerActionValidationError.BLANK_COMMAND ->
                 return ValidationInfo(MyMessageBundle.message("validation.action.command.required"), actionsTable)
+
             ServerActionValidationError.DUPLICATE_NAME ->
                 return ValidationInfo(MyMessageBundle.message("validation.action.name.duplicate"), actionsTable)
+
             null -> Unit
         }
         return null
