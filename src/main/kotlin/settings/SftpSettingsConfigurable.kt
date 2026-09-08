@@ -10,26 +10,39 @@ import javax.swing.JPanel
 
 class SftpSettingsConfigurable : Configurable {
     private val settings = SftpSettings.getInstance()
-    private val checkbox = JCheckBox(MyMessageBundle.message("server.withInnerClasses")).apply {
+    private val innerClassesCheckbox = JCheckBox(MyMessageBundle.message("server.withInnerClasses")).apply {
         isSelected = settings.withInnerClasses
-     }
+        }
+    private val javaClassFilesCheckbox = JCheckBox(MyMessageBundle.message("server.uploadJavaClassFiles")).apply {
+        isSelected = settings.uploadJavaClassFiles
+        }
     private val panel = JPanel(BorderLayout()).apply {
-        add(JPanel(FlowLayout(FlowLayout.LEFT)).apply { add(checkbox) }, BorderLayout.NORTH)
-      }
+        add(
+            JPanel(FlowLayout(FlowLayout.LEFT)).apply {
+                add(innerClassesCheckbox)
+                add(javaClassFilesCheckbox)
+               },
+            BorderLayout.NORTH,
+          )
+        }
 
     override fun getDisplayName() = MyMessageBundle.message("settings.title")
 
     override fun createComponent(): JComponent = panel
 
-    override fun isModified() = settings.withInnerClasses != checkbox.isSelected
+    override fun isModified() =
+        settings.withInnerClasses != innerClassesCheckbox.isSelected ||
+            settings.uploadJavaClassFiles != javaClassFilesCheckbox.isSelected
 
     override fun apply() {
-        settings.withInnerClasses = checkbox.isSelected
-       }
+        settings.withInnerClasses = innerClassesCheckbox.isSelected
+        settings.uploadJavaClassFiles = javaClassFilesCheckbox.isSelected
+        }
 
     override fun reset() {
-        checkbox.isSelected = settings.withInnerClasses
-       }
+        innerClassesCheckbox.isSelected = settings.withInnerClasses
+        javaClassFilesCheckbox.isSelected = settings.uploadJavaClassFiles
+        }
 
-    override fun getPreferredFocusedComponent() = checkbox
+    override fun getPreferredFocusedComponent() = innerClassesCheckbox
 }

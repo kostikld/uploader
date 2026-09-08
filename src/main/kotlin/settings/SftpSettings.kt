@@ -50,6 +50,7 @@ data class ServerProfile(
 data class SftpSettingsState(
     var servers: MutableList<ServerProfile> = mutableListOf(),
     var withInnerClasses: Boolean = true,
+    var uploadJavaClassFiles: Boolean = true,
 )
 
 @Service(Service.Level.APP)
@@ -69,7 +70,13 @@ class SftpSettings : PersistentStateComponent<SftpSettingsState> {
         get() = state.withInnerClasses
         set(value) {
             state.withInnerClasses = value
-        }
+         }
+
+    var uploadJavaClassFiles: Boolean
+        get() = state.uploadJavaClassFiles
+        set(value) {
+            state.uploadJavaClassFiles = value
+         }
 
     fun save(profile: ServerProfile) {
         val index = state.servers.indexOfFirst { it.id == profile.id }

@@ -6,6 +6,7 @@ import com.intellij.openapi.actionSystem.AnAction
 import com.intellij.openapi.actionSystem.AnActionEvent
 import com.intellij.openapi.actionSystem.CommonDataKeys
 import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
@@ -15,6 +16,7 @@ import org.kavo.uploader.settings.PasswordStore
 import org.kavo.uploader.settings.ServerProfile
 import org.kavo.uploader.settings.SftpSettings
 import org.kavo.uploader.upload.ClassFileExpander
+import org.kavo.uploader.upload.JavaClassResolver
 import org.kavo.uploader.upload.PasswordAuthentication
 import org.kavo.uploader.upload.PathMappingResolver
 import org.kavo.uploader.upload.SftpUploadService
@@ -35,7 +37,12 @@ class UploadToServerActionGroup : ActionGroup(
         val files = event.getData(CommonDataKeys.VIRTUAL_FILE_ARRAY)
         event.presentation.isEnabledAndVisible =
             event.project != null && !files.isNullOrEmpty() && files.all { !it.isDirectory && it.isInLocalFileSystem }
-    }
+        val compiled = SftpSettings.getInstance().uploadJavaClassFiles &&
+             !files.isNullOrEmpty() && files.any { it.name.endsWith(".java") }
+        event.presentation.text = MyMessageBundle.message(
+             if (compiled) "action.upload.compiled.group" else "action.upload.group",
+          )
+     }
 
     override fun getActionUpdateThread() = ActionUpdateThread.BGT
 }
@@ -52,12 +59,15 @@ private class UploadToProfileAction(private val profile: ServerProfile) : AnActi
 
     override fun actionPerformed(event: AnActionEvent) {
         val project = event.project ?: return
-        val files = event.getData(CommonDataKeys.VIRTUAL_FILE_ARRAY)?.map { Paths.get(it.path) }.orEmpty()
+        val vFiles = event.getData(CommonDataKeys.VIRTUAL_FILE_ARRAY)?.toList().orEmpty()
+        val files: List<Path> = ReadAction.computeBlocking<List<Path>, RuntimeException> {
+            JavaClassResolver.classFilesFor(project, vFiles, SftpSettings.getInstance().uploadJavaClassFiles)
+              } as List<Path>
         val requests = resolveRequests(project, files, profile)
         if (requests == null) {
             UploaderNotifications.error(project, MyMessageBundle.message("upload.no.mapping", profile.name))
             return
-        }
+           }
 
         object : Task.Backgroundable(project, MyMessageBundle.message("upload.progress", profile.name), true) {
             override fun run(indicator: ProgressIndicator) {
