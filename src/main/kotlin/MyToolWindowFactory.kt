@@ -14,12 +14,14 @@ import com.intellij.ui.PopupHandler
 import com.intellij.ui.components.JBList
 import com.intellij.ui.components.JBPasswordField
 import com.intellij.ui.components.JBScrollPane
+import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.components.JBTextField
 import com.intellij.ui.content.ContentFactory
 import com.intellij.ui.table.JBTable
 import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.ui.FormBuilder
 import org.kavo.uploader.settings.*
+import org.kavo.uploader.transfer.*
 import org.kavo.uploader.upload.*
 import java.awt.*
 import java.awt.datatransfer.DataFlavor
@@ -258,7 +260,7 @@ private class ServerRenderer : DefaultListCellRenderer() {
     }
 }
 
-private class ServerProfileDialog(project: Project, existing: ServerProfile?) : DialogWrapper(project, true) {
+private class ServerProfileDialog(private val project: Project, existing: ServerProfile?) : DialogWrapper(project, true) {
     private val isNewProfile = existing == null
     private val profileId = existing?.id ?: UUID.randomUUID().toString()
     private val nameField = JBTextField(existing?.name.orEmpty())
@@ -309,11 +311,28 @@ private class ServerProfileDialog(project: Project, existing: ServerProfile?) : 
                 add(JButton(MyMessageBundle.message("mapping.remove")).apply {
                     addActionListener {
                         mappingsTable.selectedRows.sortedDescending().forEach(mappingsModel::removeRow)
-                    }
-                })
-            }, BorderLayout.SOUTH)
-        }
-        mappingPanel.preferredSize = java.awt.Dimension(680, 220)
+                     }
+                 })
+                add(JButton(MyMessageBundle.message("mapping.copy")).apply {
+                    addActionListener {
+                        stopEditing()
+                        val mappings = (0 until mappingsModel.rowCount).map { row ->
+                            PathMapping(
+                                localPath = mappingsModel.getValueAt(row, 0)?.toString().orEmpty().trim(),
+                                remotePath = mappingsModel.getValueAt(row, 1)?.toString().orEmpty().trim(),
+                             )
+                          }.filterNot { it.localPath.isBlank() && it.remotePath.isBlank() }
+                        val text = ProfileTransfer.encodeMappings(mappings)
+                        copyToClipboard(text)
+                        UploaderNotifications.info(project, MyMessageBundle.message("mapping.copied", mappings.size))
+                     }
+                  })
+                add(JButton(MyMessageBundle.message("mapping.import")).apply {
+                    addActionListener { importMappings() }
+                  })
+             }, BorderLayout.SOUTH)
+         }
+        mappingPanel.preferredSize = Dimension(680, 220)
         val actionsPanel = JPanel(BorderLayout()).apply {
             add(JBScrollPane(actionsTable), BorderLayout.CENTER)
             add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
@@ -323,11 +342,29 @@ private class ServerProfileDialog(project: Project, existing: ServerProfile?) : 
                 add(JButton(MyMessageBundle.message("server.action.remove")).apply {
                     addActionListener {
                         actionsTable.selectedRows.sortedDescending().forEach(actionsModel::removeRow)
-                    }
-                })
-            }, BorderLayout.SOUTH)
-        }
-        actionsPanel.preferredSize = java.awt.Dimension(680, 160)
+                      }
+                  })
+                add(JButton(MyMessageBundle.message("server.action.copy")).apply {
+                    addActionListener {
+                        stopEditing()
+                        val actions = (0 until actionsModel.rowCount).map { row ->
+                            ServerAction(
+                                id = actionsModel.getValueAt(row, 2)?.toString().orEmpty(),
+                                name = actionsModel.getValueAt(row, 0)?.toString().orEmpty().trim(),
+                                command = actionsModel.getValueAt(row, 1)?.toString().orEmpty().trim(),
+                              )
+                           }.filterNot { it.name.isBlank() && it.command.isBlank() }
+                        val text = ProfileTransfer.encodeActions(actions)
+                        copyToClipboard(text)
+                        UploaderNotifications.info(project, MyMessageBundle.message("server.action.copied", actions.size))
+                      }
+                   })
+                add(JButton(MyMessageBundle.message("server.action.import")).apply {
+                    addActionListener { importActions() }
+                  })
+              }, BorderLayout.SOUTH)
+          }
+        actionsPanel.preferredSize = Dimension(680, 160)
 
         return FormBuilder.createFormBuilder()
             .addLabeledComponent(MyMessageBundle.message("server.name"), nameField)
@@ -416,6 +453,26 @@ private class ServerProfileDialog(project: Project, existing: ServerProfile?) : 
 
     fun password(): String? = passwordField.password.concatToString().takeIf { it.isNotEmpty() }
 
+    private fun copyToClipboard(text: String) {
+        CopyPasteManager.getInstance().setContents(StringSelection(text))
+      }
+
+    private fun importMappings() {
+        val dialog = ImportLinesDialog(project, MyMessageBundle.message("mapping.import"), MyMessageBundle.message("import.mappings.hint"))
+        if (!dialog.showAndGet()) return
+        val mappings = ProfileTransfer.decodeMappings(dialog.text())
+        mappings.forEach { mappingsModel.addRow(arrayOf(it.localPath, it.remotePath)) }
+        UploaderNotifications.info(project, MyMessageBundle.message("mapping.imported", mappings.size))
+      }
+
+    private fun importActions() {
+        val dialog = ImportLinesDialog(project, MyMessageBundle.message("server.action.import"), MyMessageBundle.message("import.actions.hint"))
+        if (!dialog.showAndGet()) return
+        val actions = ProfileTransfer.decodeActions(dialog.text())
+        actions.forEach { actionsModel.addRow(arrayOf(it.name, it.command, it.id)) }
+        UploaderNotifications.info(project, MyMessageBundle.message("server.action.imported", actions.size))
+      }
+
     private fun mappings(): List<PathMapping> =
         (0 until mappingsModel.rowCount).map { row ->
             PathMapping(
@@ -436,7 +493,31 @@ private class ServerProfileDialog(project: Project, existing: ServerProfile?) : 
     private fun stopEditing() {
         if (mappingsTable.isEditing) mappingsTable.cellEditor.stopCellEditing()
         if (actionsTable.isEditing) actionsTable.cellEditor.stopCellEditing()
-    }
+       }
+}
+
+private class ImportLinesDialog(
+    project: Project,
+    dialogTitle: String,
+    private val hint: String,
+) : DialogWrapper(project, true) {
+    private val textArea = JBTextArea(10, 50).apply {
+        lineWrap = false
+        }
+
+    init {
+        title = dialogTitle
+        init()
+        }
+
+    fun text(): String = textArea.text
+
+    override fun createCenterPanel(): JComponent {
+        val panel = JPanel(BorderLayout())
+        panel.add(JLabel(hint), BorderLayout.NORTH)
+        panel.add(JBScrollPane(textArea), BorderLayout.CENTER)
+        return panel
+        }
 }
 
 private fun installCellClipboardActions(table: JTable) {
