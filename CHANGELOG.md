@@ -4,7 +4,7 @@
 
 ## Unreleased
 
-## 1.0.0-SNAPSHOT - 2026-08-10
+## 1.0.2-SNAPSHOT - 2026-09-09
 
 ### Added
 

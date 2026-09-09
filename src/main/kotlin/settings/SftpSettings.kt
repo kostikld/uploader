@@ -49,6 +49,8 @@ data class ServerProfile(
 
 data class SftpSettingsState(
     var servers: MutableList<ServerProfile> = mutableListOf(),
+    var withInnerClasses: Boolean = true,
+    var uploadJavaClassFiles: Boolean = true,
 )
 
 @Service(Service.Level.APP)
@@ -63,6 +65,18 @@ class SftpSettings : PersistentStateComponent<SftpSettingsState> {
     }
 
     fun servers(): List<ServerProfile> = state.servers
+
+    var withInnerClasses: Boolean
+        get() = state.withInnerClasses
+        set(value) {
+            state.withInnerClasses = value
+         }
+
+    var uploadJavaClassFiles: Boolean
+        get() = state.uploadJavaClassFiles
+        set(value) {
+            state.uploadJavaClassFiles = value
+         }
 
     fun save(profile: ServerProfile) {
         val index = state.servers.indexOfFirst { it.id == profile.id }
@@ -91,10 +105,10 @@ object PasswordStore {
         PasswordSafe.instance.getPassword(attributes(profileId))
 
     fun set(profileId: String, username: String, password: String) {
-        PasswordSafe.instance.set(attributes(profileId), Credentials(username, password))
+        PasswordSafe.instance[attributes(profileId)] = Credentials(username, password)
     }
 
     fun remove(profileId: String) {
-        PasswordSafe.instance.set(attributes(profileId), null)
+        PasswordSafe.instance[attributes(profileId)] = null
     }
 }

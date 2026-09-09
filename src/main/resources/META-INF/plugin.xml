@@ -25,11 +25,15 @@
 
     <!-- Extensions defined by the plugin.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
-    <extensions defaultExtensionNs="com.intellij">
-        <toolWindow id="SFTP Uploader" factoryClass="org.kavo.uploader.MyToolWindowFactory"
-                    icon="/META-INF/pluginIcon.svg"/>
-        <notificationGroup id="SFTP Uploader" displayType="BALLOON" isLogByDefault="true"/>
-    </extensions>
+     <extensions defaultExtensionNs="com.intellij">
+         <toolWindow id="SFTP Uploader" factoryClass="org.kavo.uploader.MyToolWindowFactory"
+                     icon="/META-INF/pluginIcon.svg"/>
+         <notificationGroup id="SFTP Uploader" displayType="BALLOON" isLogByDefault="true"/>
+         <applicationConfigurable parentId="tools"
+                                 id="org.kavo.uploader.SftpSettings"
+                                 displayName="SFTP Uploader"
+                                 instance="org.kavo.uploader.settings.SftpSettingsConfigurable"/>
+     </extensions>
 
     <actions>
         <group id="org.kavo.uploader.UploadToServer"
