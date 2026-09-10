@@ -35,12 +35,12 @@
                                  instance="org.kavo.uploader.settings.SftpSettingsConfigurable"/>
      </extensions>
 
-    <actions>
-        <group id="org.kavo.uploader.UploadToServer"
-               class="org.kavo.uploader.actions.UploadToServerActionGroup"
-               text="Upload to server"
-               popup="true">
-            <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
-        </group>
-    </actions>
+       <actions>
+           <group id="org.kavo.uploader.UploadToServer"
+                 class="org.kavo.uploader.actions.UploadToServerActionGroup"
+                 text="Upload to server"
+                 popup="true">
+               <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
+            </group>
+        </actions>
 </idea-plugin>

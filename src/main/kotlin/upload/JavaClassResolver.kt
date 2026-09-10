@@ -30,11 +30,14 @@ object JavaClassResolver {
             if (!file.name.endsWith(".java")) {
                 results.add(Paths.get(file.path))
                 return@forEach
-             }
+              }
             resolveClassFile(project, file)?.let(results::add)
-         }
+          }
         return results.toList()
-     }
+       }
+
+    fun compiledClassFile(project: Project, file: VirtualFile): Path? =
+        if (!file.name.endsWith(".java")) null else resolveClassFile(project, file)
 
     private fun resolveClassFile(project: Project, file: VirtualFile): Path? {
         val fileIndex = ProjectFileIndex.getInstance(project)

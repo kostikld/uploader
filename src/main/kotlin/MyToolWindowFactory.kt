@@ -20,6 +20,7 @@ import com.intellij.ui.content.ContentFactory
 import com.intellij.ui.table.JBTable
 import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.ui.FormBuilder
+import org.kavo.uploader.actions.launchUploadChangedFiles
 import org.kavo.uploader.settings.*
 import org.kavo.uploader.transfer.*
 import org.kavo.uploader.upload.*
@@ -75,8 +76,11 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
             })
             add(JButton(MyMessageBundle.message("server.test")).apply {
                 addActionListener { serverList.selectedValue?.let(::testConnection) }
-            })
-        }, BorderLayout.SOUTH)
+             })
+            add(JButton(MyMessageBundle.message("server.upload.changed")).apply {
+                addActionListener { launchUploadChangedFiles(project) }
+             })
+         }, BorderLayout.SOUTH)
         refresh()
     }
 
