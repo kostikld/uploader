@@ -4,10 +4,10 @@
 
 ## Unreleased
 
-### Added
+## 1.0.3-SNAPSHOT - 2026-10-09
 
-- Copy all path mappings or actions to the clipboard as shareable text lines and import them back
-  (format: `local path -> remote path` and `name -> command`).
+- If project is a git directory, then there is ability to list all changed files identified by GIT and upload selected
+
 ## 1.0.2-SNAPSHOT - 2026-09-09
 
 ### Added
