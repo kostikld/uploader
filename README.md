@@ -58,7 +58,7 @@ The [build.gradle.kts][file:build.gradle.kts] is the core of the project definit
 The `intellijPlatform` dependencies block selects the IDE to compile against:
 
 ```kotlin
-intellijIdea("2025.3.5")
+intellijIdea("2026.2.1")
 ```
 
 See [Target Versions][docs:target-version] for more information.

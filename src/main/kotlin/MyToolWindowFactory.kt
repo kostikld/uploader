@@ -59,27 +59,10 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
         add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
             add(JButton(MyMessageBundle.message("server.add")).apply {
                 addActionListener { editProfile(null) }
-            })
-            add(JButton(MyMessageBundle.message("server.edit")).apply {
-                addActionListener { serverList.selectedValue?.let(::editProfile) }
-            })
-            add(JButton(MyMessageBundle.message("server.remove")).apply {
-                addActionListener {
-                    serverList.selectedValue?.let {
-                        settings.remove(it.id)
-                        refresh()
-                        AppExecutorUtil.getAppExecutorService().execute {
-                            PasswordStore.remove(it.id)
-                        }
-                    }
-                }
-            })
-            add(JButton(MyMessageBundle.message("server.test")).apply {
-                addActionListener { serverList.selectedValue?.let(::testConnection) }
              })
             add(JButton(MyMessageBundle.message("server.upload.changed")).apply {
                 addActionListener { launchUploadChangedFiles(project) }
-             })
+              })
          }, BorderLayout.SOUTH)
         refresh()
     }
@@ -97,15 +80,25 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
         serverList.selectedIndex = index
         val profile = serverList.selectedValue ?: return
         JPopupMenu().apply {
+            add(JMenuItem(MyMessageBundle.message("server.edit")).apply {
+                addActionListener { editProfile(profile) }
+             })
+            add(JMenuItem(MyMessageBundle.message("server.test")).apply {
+                addActionListener { testConnection(profile) }
+             })
+            add(JMenuItem(MyMessageBundle.message("server.remove")).apply {
+                addActionListener { removeProfile(profile) }
+             })
+            addSeparator()
             add(JMenu(MyMessageBundle.message("server.context.actions")).apply {
                 profile.actions.forEach { action ->
                     add(JMenuItem(action.name).apply {
                         addActionListener { executeAction(profile, action) }
-                    })
-                }
-            })
+                     })
+                  }
+             })
             show(serverList, x, y)
-        }
+          }
     }
 
     private fun executeAction(profile: ServerProfile, action: ServerAction) {
@@ -193,6 +186,14 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
             }
         }.queue()
     }
+
+    private fun removeProfile(profile: ServerProfile) {
+        settings.remove(profile.id)
+        refresh()
+        AppExecutorUtil.getAppExecutorService().execute {
+            PasswordStore.remove(profile.id)
+          }
+      }
 
     private fun editProfile(existing: ServerProfile?) {
         val dialog = ServerProfileDialog(project, existing)

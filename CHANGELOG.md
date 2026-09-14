@@ -5,7 +5,7 @@
 ## Unreleased
 
 ## 1.0.3-SNAPSHOT - 2026-10-09
-- If project is a git directory, then there is ability to list all changed files identified by GIT and upload selected
+- If a project is a git directory, then there is an ability to list all changed files identified by GIT and upload selected
 
 - Copy all path mappings or actions to the clipboard as shareable text lines and import them back
    (format: `local path -> remote path` and `name -> command`).
