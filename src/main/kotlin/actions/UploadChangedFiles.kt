@@ -21,6 +21,8 @@ import org.kavo.uploader.upload.PasswordAuthentication
 import org.kavo.uploader.upload.PathMappingResolver
 import org.kavo.uploader.upload.SftpUploadService
 import org.kavo.uploader.upload.UploadRequest
+import org.kavo.uploader.upload.UploadStrategy
+import org.kavo.uploader.upload.uploadWithRsyncFallback
 import java.nio.file.Path
 
 fun launchUploadChangedFiles(project: Project) {
@@ -102,20 +104,33 @@ private fun uploadSelected(
                 if (password == null) {
                     UploaderNotifications.error(project, MyMessageBundle.message("error.password.missing", profile.name))
                     return
-                     }
-                ApplicationManager.getApplication().getService(SftpUploadService::class.java)
-                      .upload(profile, PasswordAuthentication(password), requests, indicator::checkCanceled)
+                   }
+                val service = ApplicationManager.getApplication().getService(SftpUploadService::class.java)
+                val rsync = UploadStrategy { p, pwd, reqs, cancel ->
+                    service.uploadViaRsync(p, pwd, reqs, cancel)
+                 }
+                val sftp = UploadStrategy { p, pwd, reqs, cancel ->
+                    service.upload(p, PasswordAuthentication(pwd ?: ByteArray(0)), reqs, cancel)
+                 }
+                uploadWithRsyncFallback(
+                    profile,
+                    password,
+                    requests,
+                    indicator::checkCanceled,
+                    rsync,
+                    sftp,
+                 )
                 UploaderNotifications.info(project, MyMessageBundle.message("upload.success", requests.size, profile.name))
-                 } catch (error: Exception) {
+              } catch (error: Exception) {
                 UploaderNotifications.error(
                     project,
                     MyMessageBundle.message(
-                          "upload.failed",
-                         profile.name,
-                         error.message ?: error.javaClass.simpleName,
-                         ),
-                     )
-                 }
-             }
-           }.queue()
+                       "upload.failed",
+                      profile.name,
+                      error.message ?: error.javaClass.simpleName,
+                       ),
+                   )
+              }
+           }
+         }.queue()
        }

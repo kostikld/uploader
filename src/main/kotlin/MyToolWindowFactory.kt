@@ -59,27 +59,10 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
         add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
             add(JButton(MyMessageBundle.message("server.add")).apply {
                 addActionListener { editProfile(null) }
-            })
-            add(JButton(MyMessageBundle.message("server.edit")).apply {
-                addActionListener { serverList.selectedValue?.let(::editProfile) }
-            })
-            add(JButton(MyMessageBundle.message("server.remove")).apply {
-                addActionListener {
-                    serverList.selectedValue?.let {
-                        settings.remove(it.id)
-                        refresh()
-                        AppExecutorUtil.getAppExecutorService().execute {
-                            PasswordStore.remove(it.id)
-                        }
-                    }
-                }
-            })
-            add(JButton(MyMessageBundle.message("server.test")).apply {
-                addActionListener { serverList.selectedValue?.let(::testConnection) }
              })
             add(JButton(MyMessageBundle.message("server.upload.changed")).apply {
                 addActionListener { launchUploadChangedFiles(project) }
-             })
+              })
          }, BorderLayout.SOUTH)
         refresh()
     }
@@ -97,15 +80,25 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
         serverList.selectedIndex = index
         val profile = serverList.selectedValue ?: return
         JPopupMenu().apply {
+            add(JMenuItem(MyMessageBundle.message("server.edit")).apply {
+                addActionListener { editProfile(profile) }
+             })
+            add(JMenuItem(MyMessageBundle.message("server.test")).apply {
+                addActionListener { testConnection(profile) }
+             })
+            add(JMenuItem(MyMessageBundle.message("server.remove")).apply {
+                addActionListener { removeProfile(profile) }
+             })
+            addSeparator()
             add(JMenu(MyMessageBundle.message("server.context.actions")).apply {
                 profile.actions.forEach { action ->
                     add(JMenuItem(action.name).apply {
                         addActionListener { executeAction(profile, action) }
-                    })
-                }
-            })
+                     })
+                  }
+             })
             show(serverList, x, y)
-        }
+          }
     }
 
     private fun executeAction(profile: ServerProfile, action: ServerAction) {
@@ -194,6 +187,14 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
         }.queue()
     }
 
+    private fun removeProfile(profile: ServerProfile) {
+        settings.remove(profile.id)
+        refresh()
+        AppExecutorUtil.getAppExecutorService().execute {
+            PasswordStore.remove(profile.id)
+          }
+      }
+
     private fun editProfile(existing: ServerProfile?) {
         val dialog = ServerProfileDialog(project, existing)
         if (!dialog.showAndGet()) return
@@ -272,6 +273,9 @@ private class ServerProfileDialog(private val project: Project, existing: Server
     private val portField = JSpinner(SpinnerNumberModel(existing?.port ?: 22, 1, 65535, 1))
     private val usernameField = JBTextField(existing?.username.orEmpty())
     private val passwordField = JBPasswordField()
+    private val useRsyncCheckbox = JCheckBox(MyMessageBundle.message("server.useRsync")).apply {
+        isSelected = existing?.useRsync ?: SftpSettings.getInstance().newServerUseRsync
+       }
     private val mappingsModel = object : DefaultTableModel(arrayOf("Project-relative path", "Remote directory"), 0) {
         override fun isCellEditable(row: Int, column: Int) = true
     }
@@ -375,11 +379,12 @@ private class ServerProfileDialog(private val project: Project, existing: Server
             .addLabeledComponent(MyMessageBundle.message("server.host"), hostField)
             .addLabeledComponent(MyMessageBundle.message("server.port"), portField)
             .addLabeledComponent(MyMessageBundle.message("server.username"), usernameField)
-            .addLabeledComponent(
-                MyMessageBundle.message(if (isNewProfile) "server.password" else "server.password.unchanged"),
-                passwordField,
-            )
-            .addSeparator()
+             .addLabeledComponent(
+                 MyMessageBundle.message(if (isNewProfile) "server.password" else "server.password.unchanged"),
+                 passwordField,
+              )
+             .addComponent(useRsyncCheckbox)
+             .addSeparator()
             .addLabeledComponentFillVertically(MyMessageBundle.message("server.mappings"), mappingPanel)
             .addLabeledComponentFillVertically(MyMessageBundle.message("server.actions"), actionsPanel)
             .panel
@@ -450,6 +455,7 @@ private class ServerProfileDialog(private val project: Project, existing: Server
             host = hostField.text.trim(),
             port = portField.value as Int,
             username = usernameField.text.trim(),
+            useRsync = useRsyncCheckbox.isSelected,
             mappings = mappings().toMutableList(),
             actions = actions().toMutableList(),
         )

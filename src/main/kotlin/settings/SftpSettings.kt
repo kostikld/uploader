@@ -43,6 +43,7 @@ data class ServerProfile(
     var host: String = "",
     var port: Int = 22,
     var username: String = "",
+    var useRsync: Boolean = false,
     var mappings: MutableList<PathMapping> = mutableListOf(),
     var actions: MutableList<ServerAction> = mutableListOf(),
 )
@@ -51,6 +52,7 @@ data class SftpSettingsState(
     var servers: MutableList<ServerProfile> = mutableListOf(),
     var withInnerClasses: Boolean = true,
     var uploadJavaClassFiles: Boolean = true,
+    var newServerUseRsync: Boolean = false,
 )
 
 @Service(Service.Level.APP)
@@ -76,7 +78,13 @@ class SftpSettings : PersistentStateComponent<SftpSettingsState> {
         get() = state.uploadJavaClassFiles
         set(value) {
             state.uploadJavaClassFiles = value
-         }
+          }
+
+    var newServerUseRsync: Boolean
+        get() = state.newServerUseRsync
+        set(value) {
+            state.newServerUseRsync = value
+          }
 
     fun save(profile: ServerProfile) {
         val index = state.servers.indexOfFirst { it.id == profile.id }

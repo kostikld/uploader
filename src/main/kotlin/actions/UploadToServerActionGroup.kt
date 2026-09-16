@@ -21,6 +21,8 @@ import org.kavo.uploader.upload.PasswordAuthentication
 import org.kavo.uploader.upload.PathMappingResolver
 import org.kavo.uploader.upload.SftpUploadService
 import org.kavo.uploader.upload.UploadRequest
+import org.kavo.uploader.upload.UploadStrategy
+import org.kavo.uploader.upload.uploadWithRsyncFallback
 import java.nio.file.Path
 import java.nio.file.Paths
 
@@ -80,11 +82,20 @@ private class UploadToProfileAction(private val profile: ServerProfile) : AnActi
                         )
                         return
                     }
-                    ApplicationManager.getApplication().getService(SftpUploadService::class.java).upload(
+                    val service = ApplicationManager.getApplication().getService(SftpUploadService::class.java)
+                    val rsync = UploadStrategy { p, pwd, reqs, cancel ->
+                        service.uploadViaRsync(p, pwd, reqs, cancel)
+                    }
+                    val sftp = UploadStrategy { p, pwd, reqs, cancel ->
+                        service.upload(p, PasswordAuthentication(pwd ?: ByteArray(0)), reqs, cancel)
+                    }
+                    uploadWithRsyncFallback(
                         profile,
-                        PasswordAuthentication(password),
+                        password,
                         requests,
                         indicator::checkCanceled,
+                        rsync,
+                        sftp,
                     )
                     UploaderNotifications.info(
                         project,
@@ -94,14 +105,14 @@ private class UploadToProfileAction(private val profile: ServerProfile) : AnActi
                     UploaderNotifications.error(
                         project,
                         MyMessageBundle.message(
-                            "upload.failed",
-                            profile.name,
-                            error.message ?: error.javaClass.simpleName,
-                        ),
+                        "upload.failed",
+                        profile.name,
+                        error.message ?: error.javaClass.simpleName,
+                    ),
                     )
                 }
             }
-        }.queue()
+            }.queue()
     }
 
     override fun getActionUpdateThread() = ActionUpdateThread.BGT

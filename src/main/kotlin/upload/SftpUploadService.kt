@@ -8,6 +8,8 @@ import com.jcraft.jsch.Session
 import com.jcraft.jsch.SftpException
 import org.kavo.uploader.settings.ServerProfile
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.IOException
 import java.io.InputStream
 import java.nio.charset.StandardCharsets
 import java.nio.file.Files
@@ -63,6 +65,9 @@ internal fun formatElapsedTime(elapsedMillis: Long): String {
 
 internal fun isSuccessfulCommandExit(exitStatus: Int): Boolean = exitStatus == 0
 
+internal fun escapeSingleQuoteShell(value: String): String =
+     value.replace("'", "'\\''")
+
 @Service(Service.Level.APP)
 class SftpUploadService {
     fun upload(
@@ -91,6 +96,18 @@ class SftpUploadService {
 
     fun testConnection(profile: ServerProfile, authentication: SftpAuthentication) {
         withChannel(profile, authentication) { channel -> channel.pwd() }
+      }
+
+    fun uploadViaRsync(
+        profile: ServerProfile,
+        password: ByteArray?,
+        requests: List<UploadRequest>,
+        checkCanceled: () -> Unit = {},
+    ) {
+        requests.forEach { request ->
+            checkCanceled()
+            runRsync(profile, password, request)
+        }
     }
 
     fun executeCommand(
@@ -125,11 +142,135 @@ class SftpUploadService {
         }
     }
 
+    internal fun buildSshBase(profile: ServerProfile, password: ByteArray?): List<String> {
+        val batchMode = if (password == null) "yes" else "no"
+        return listOf(
+              "ssh",
+              "-p", profile.port.toString(),
+               "-o", "BatchMode=$batchMode",
+               "-o", "StrictHostKeyChecking=no",
+             )
+        }
+
+    internal fun buildRsyncCommand(profile: ServerProfile, password: ByteArray?, request: UploadRequest): List<String> {
+        val source = request.localFile.toAbsolutePath().toString()
+        val remote = "${profile.username}@${profile.host}:${request.remoteFile}"
+        val ssh = buildSshBase(profile, password).joinToString(" ")
+        return listOf(
+              "rsync",
+               "-avz",
+               "-e",
+              ssh,
+              source,
+              remote,
+             )
+        }
+
+     private fun runRsync(profile: ServerProfile, password: ByteArray?, request: UploadRequest) {
+         val source = request.localFile.toAbsolutePath()
+         require(Files.isRegularFile(source)) { "Not a regular file: $source" }
+         val remoteDirectory = request.remoteFile.substringBeforeLast('/', "")
+         require(remoteDirectory.startsWith("/")) { "Remote path must be absolute: ${request.remoteFile}" }
+
+         val helper = if (password == null) null else createAskpass(password)
+         try {
+             runRemoteMkdir(profile, password, remoteDirectory, helper)
+             runNamedProcess(
+                "rsync",
+                buildRsyncCommand(profile, password, request),
+                helper,
+                errorLabel = "rsync",
+             )
+           } finally {
+            deleteQuietly(helper)
+            }
+        }
+
+     private fun runRemoteMkdir(profile: ServerProfile, password: ByteArray?, remoteDirectory: String, helper: File?) {
+         if (remoteDirectory == "/") return
+         val command = buildSshBase(profile, password) +
+                     listOf("${profile.username}@${profile.host}", "mkdir", "-p", remoteDirectory)
+         runNamedProcess(command.first(), command, helper, errorLabel = "mkdir")
+        }
+
+     private fun runNamedProcess(
+         executable: String,
+         command: List<String>,
+         helper: File?,
+         errorLabel: String,
+       ) {
+         val builder = ProcessBuilder(command).redirectErrorStream(true)
+         if (helper != null) configureAskpass(builder, helper)
+         applyProcessEnvironment(builder)
+         val process = try {
+             builder.start()
+           } catch (launch: IOException) {
+             throw RuntimeException(
+                  "$errorLabel: cannot start '$executable' (${launch.message}). " +
+                  "Make sure $executable is installed and available on your PATH.",
+             )
+           }
+         val output = process.inputStream.bufferedReader().use { it.readText() }
+         val exitStatus = process.waitFor()
+         if (exitStatus != 0) {
+             throw RuntimeException("$errorLabel exited with status $exitStatus: ${output.trim()}")
+          }
+       }
+
+     private fun applyProcessEnvironment(builder: ProcessBuilder) {
+         val env = builder.environment()
+         val augmentedPath = augmentPath(
+             env["PATH"] ?: "",
+             executableDirectories(),
+         )
+         env["PATH"] = augmentedPath
+      }
+
+     private fun augmentPath(existingPath: String, extraDirectories: List<String>): String {
+         val separator = System.getProperty("path.separator") ?: ":"
+         val existing = existingPath.split(separator).filter { it.isNotBlank() }
+         val seen = LinkedHashSet<String>()
+         (extraDirectories + existing).forEach { seen.add(it) }
+         return seen.joinToString(separator)
+         }
+
+     private fun executableDirectories(): List<String> {
+         val os = System.getProperty("os.name").lowercase()
+         return if (os.contains("mac") || os.contains("nix")) {
+            listOf("/usr/local/bin", "/opt/homebrew/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin")
+         } else {
+            listOf("/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin")
+          }
+      }
+
+     private fun createAskpass(password: ByteArray): File {
+          val passwordText = String(password, StandardCharsets.UTF_8)
+          val tmpDir = File(System.getProperty("java.io.tmpdir"))
+          val helper = File.createTempFile("sftp-uploader-askpass-", ".sh", tmpDir)
+         val script =
+              "#!/bin/sh\nprintf '%s\\n' '" + escapeSingleQuoteShell(passwordText) + "'\n"
+         Files.write(helper.toPath(), script.toByteArray(StandardCharsets.UTF_8))
+         helper.setExecutable(true, false)
+         return helper
+       }
+
+     private fun configureAskpass(builder: ProcessBuilder, helper: File) {
+         builder.environment().apply {
+             put("SSH_ASKPASS", helper.absolutePath)
+             put("SSH_ASKPASS_REQUIRE", "force")
+             put("DISPLAY", "dummy")
+          }
+      }
+
+     private fun deleteQuietly(file: File?) {
+         if (file != null) file.delete()
+      }
+
     private fun <T> withChannel(
         profile: ServerProfile,
         authentication: SftpAuthentication,
         action: (ChannelSftp) -> T,
-    ): T = withSession(profile, authentication) { session ->
+      ): T = withSession(profile, authentication) { session ->
         var channel: ChannelSftp? = null
         try {
             channel = session.openChannel("sftp") as ChannelSftp
