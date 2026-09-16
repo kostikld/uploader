@@ -273,6 +273,9 @@ private class ServerProfileDialog(private val project: Project, existing: Server
     private val portField = JSpinner(SpinnerNumberModel(existing?.port ?: 22, 1, 65535, 1))
     private val usernameField = JBTextField(existing?.username.orEmpty())
     private val passwordField = JBPasswordField()
+    private val useRsyncCheckbox = JCheckBox(MyMessageBundle.message("server.useRsync")).apply {
+        isSelected = existing?.useRsync ?: SftpSettings.getInstance().newServerUseRsync
+       }
     private val mappingsModel = object : DefaultTableModel(arrayOf("Project-relative path", "Remote directory"), 0) {
         override fun isCellEditable(row: Int, column: Int) = true
     }
@@ -376,11 +379,12 @@ private class ServerProfileDialog(private val project: Project, existing: Server
             .addLabeledComponent(MyMessageBundle.message("server.host"), hostField)
             .addLabeledComponent(MyMessageBundle.message("server.port"), portField)
             .addLabeledComponent(MyMessageBundle.message("server.username"), usernameField)
-            .addLabeledComponent(
-                MyMessageBundle.message(if (isNewProfile) "server.password" else "server.password.unchanged"),
-                passwordField,
-            )
-            .addSeparator()
+             .addLabeledComponent(
+                 MyMessageBundle.message(if (isNewProfile) "server.password" else "server.password.unchanged"),
+                 passwordField,
+              )
+             .addComponent(useRsyncCheckbox)
+             .addSeparator()
             .addLabeledComponentFillVertically(MyMessageBundle.message("server.mappings"), mappingPanel)
             .addLabeledComponentFillVertically(MyMessageBundle.message("server.actions"), actionsPanel)
             .panel
@@ -451,6 +455,7 @@ private class ServerProfileDialog(private val project: Project, existing: Server
             host = hostField.text.trim(),
             port = portField.value as Int,
             username = usernameField.text.trim(),
+            useRsync = useRsyncCheckbox.isSelected,
             mappings = mappings().toMutableList(),
             actions = actions().toMutableList(),
         )

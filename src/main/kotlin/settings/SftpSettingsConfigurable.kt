@@ -15,16 +15,20 @@ class SftpSettingsConfigurable : Configurable {
         }
     private val javaClassFilesCheckbox = JCheckBox(MyMessageBundle.message("server.uploadJavaClassFiles")).apply {
         isSelected = settings.uploadJavaClassFiles
-        }
+         }
+    private val newServerUseRsyncCheckbox = JCheckBox(MyMessageBundle.message("server.newServerUseRsync")).apply {
+        isSelected = settings.newServerUseRsync
+         }
     private val panel = JPanel(BorderLayout()).apply {
         add(
             JPanel(FlowLayout(FlowLayout.LEFT)).apply {
                 add(innerClassesCheckbox)
                 add(javaClassFilesCheckbox)
-               },
+                add(newServerUseRsyncCheckbox)
+                },
             BorderLayout.NORTH,
-          )
-        }
+           )
+         }
 
     override fun getDisplayName() = MyMessageBundle.message("settings.title")
 
@@ -32,17 +36,20 @@ class SftpSettingsConfigurable : Configurable {
 
     override fun isModified() =
         settings.withInnerClasses != innerClassesCheckbox.isSelected ||
-            settings.uploadJavaClassFiles != javaClassFilesCheckbox.isSelected
+            settings.uploadJavaClassFiles != javaClassFilesCheckbox.isSelected ||
+            settings.newServerUseRsync != newServerUseRsyncCheckbox.isSelected
 
     override fun apply() {
         settings.withInnerClasses = innerClassesCheckbox.isSelected
         settings.uploadJavaClassFiles = javaClassFilesCheckbox.isSelected
-        }
+        settings.newServerUseRsync = newServerUseRsyncCheckbox.isSelected
+         }
 
     override fun reset() {
         innerClassesCheckbox.isSelected = settings.withInnerClasses
         javaClassFilesCheckbox.isSelected = settings.uploadJavaClassFiles
-        }
+        newServerUseRsyncCheckbox.isSelected = settings.newServerUseRsync
+         }
 
     override fun getPreferredFocusedComponent() = innerClassesCheckbox
 }
