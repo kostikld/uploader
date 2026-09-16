@@ -4,9 +4,14 @@
 
 ## Unreleased
 
-## 1.0.3-SNAPSHOT - 2026-10-09
-- If a project is a git directory, then there is an ability to list all changed files identified by GIT and upload selected
+## 1.0.4-SNAPSHOT - 2026-09-16
 
+- Support Rsync, Disabled by default
+- Small UI improvements
+
+## 1.0.3-SNAPSHOT - 2026-09-10
+
+- If a project is a git directory, then there is an ability to list all changed files identified by GIT and upload selected
 - Copy all path mappings or actions to the clipboard as shareable text lines and import them back
    (format: `local path -> remote path` and `name -> command`).
 - "Upload changed files" button in the tool window: scan the Git working tree for
