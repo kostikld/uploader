@@ -1,10 +1,8 @@
 package org.kavo.uploader.changedfiles
 
-import com.intellij.ide.setToolTipText
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.ui.popup.JBPopupFactory
-import com.intellij.openapi.util.text.HtmlChunk
 import com.intellij.ui.awt.RelativePoint
 import com.intellij.ui.components.JBLabel
 import org.kavo.uploader.MyMessageBundle
@@ -102,17 +100,12 @@ class ChangedFilesDialog(
             val enabled = rowIsEnabled(uploadRow, data.projectRoot, mappings)
             check.isEnabled = enabled
             check.isSelected = enabled
-            check.setToolTipText(
+            check.toolTipText =
                 when {
                     uploadRow.missingClass -> MyMessageBundle.message("changed.tooltip.please.compile")
                     !enabled -> MyMessageBundle.message("changed.tooltip.no.mapping")
                     else -> null
-                }?.let {
-                    HtmlChunk.text(
-                        it
-                    )
                 }
-            )
         }
     }
 }

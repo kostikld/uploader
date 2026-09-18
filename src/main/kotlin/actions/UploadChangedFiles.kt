@@ -24,6 +24,7 @@ import org.kavo.uploader.upload.UploadRequest
 import org.kavo.uploader.upload.UploadStrategy
 import org.kavo.uploader.upload.uploadWithRsyncFallback
 import java.nio.file.Path
+import java.util.concurrent.Callable
 
 fun launchUploadChangedFiles(project: Project) {
     val servers = SftpSettings.getInstance().servers()
@@ -56,14 +57,16 @@ private fun scanAndShow(
         UploaderNotifications.info(project, MyMessageBundle.message("changed.none"))
         return
          }
-    val classByJava: Map<Path, Path?> = ReadAction.computeBlocking<Map<Path, Path?>, RuntimeException> {
-        changed.associateWith { path ->
-            val virtualFile = LocalFileSystem.getInstance().findFileByPath(path.toAbsolutePath().toString())
-                  ?: return@associateWith null
-            if (!virtualFile.name.endsWith(".java")) null else
-                JavaClassResolver.compiledClassFile(project, virtualFile)
-             }
-          } as Map<Path, Path?>
+    val classByJava = ReadAction.nonBlocking(
+        Callable {
+            changed.associateWith { path ->
+                val virtualFile = LocalFileSystem.getInstance().findFileByPath(path.toAbsolutePath().toString())
+                    ?: return@associateWith null
+                if (!virtualFile.name.endsWith(".java")) null else
+                    JavaClassResolver.compiledClassFile(project, virtualFile)
+            }
+        },
+    ).executeSynchronously()
     val settings = SftpSettings.getInstance()
     val rows = buildUploadRows(
         changed = changed,

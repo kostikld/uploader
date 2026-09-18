@@ -19,21 +19,22 @@
 
     <!-- Product and plugin compatibility requirements.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
+    <idea-version since-build="233"/>
     <depends>com.intellij.modules.platform</depends>
 
     <resource-bundle>messages.MyMessageBundle</resource-bundle>
 
     <!-- Extensions defined by the plugin.
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-extension-points.html -->
-     <extensions defaultExtensionNs="com.intellij">
-         <toolWindow id="SFTP Uploader" factoryClass="org.kavo.uploader.MyToolWindowFactory"
-                     icon="/META-INF/pluginIcon.svg"/>
-         <notificationGroup id="SFTP Uploader" displayType="BALLOON" isLogByDefault="true"/>
-         <applicationConfigurable parentId="tools"
+    <extensions defaultExtensionNs="com.intellij">
+        <toolWindow id="SFTP Uploader" factoryClass="org.kavo.uploader.MyToolWindowFactory"
+                    icon="/META-INF/toolWindowIcon.svg"/>
+        <notificationGroup id="SFTP Uploader" displayType="BALLOON" isLogByDefault="true"/>
+        <applicationConfigurable parentId="tools"
                                  id="org.kavo.uploader.SftpSettings"
                                  displayName="SFTP Uploader"
                                  instance="org.kavo.uploader.settings.SftpSettingsConfigurable"/>
-     </extensions>
+    </extensions>
 
        <actions>
             <group id="org.kavo.uploader.UploadToServer"

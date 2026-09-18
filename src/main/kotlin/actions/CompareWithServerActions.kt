@@ -31,6 +31,7 @@ import org.kavo.uploader.upload.PathMappingResolver
 import org.kavo.uploader.upload.RemoteFileMissingException
 import org.kavo.uploader.upload.SftpUploadService
 import java.nio.file.Path
+import java.util.concurrent.Callable
 
 enum class CompareMode {
     SOURCE,
@@ -92,96 +93,94 @@ private class CompareWithProfileAction(
     override fun actionPerformed(event: AnActionEvent) {
         val project = event.project ?: return
         val vFiles = event.getData(CommonDataKeys.VIRTUAL_FILE_ARRAY)?.toList().orEmpty()
-        val settings = SftpSettings.getInstance()
         val compiled = mode == CompareMode.COMPILED
-        val files: List<Path> = ReadAction.computeBlocking<List<Path>, RuntimeException> {
-            JavaClassResolver.classFilesFor(project, vFiles, compiled)
-             } as List<Path>
-        val missingCompiled: List<String> =
-            if (compiled) {
-                ReadAction.computeBlocking<List<String>, RuntimeException> {
-                    vFiles.filter { it.name.endsWith(".java") }
-                         .mapNotNull { vf ->
-                            if (JavaClassResolver.compiledClassFile(project, vf) == null) vf.name else null
-                           }
-                    } as List<String>
-                 } else {
-                emptyList()
+        object : Task.Backgroundable(project, compareProgress(mode, profile.name), true) {
+            override fun run(indicator: ProgressIndicator) {
+                try {
+                    val settings = SftpSettings.getInstance()
+                    val (files, missingCompiled) = ReadAction.nonBlocking(
+                        Callable {
+                            val resolvedFiles = JavaClassResolver.classFilesFor(project, vFiles, compiled)
+                            val missing = if (compiled) {
+                                vFiles.filter { it.name.endsWith(".java") }
+                                    .mapNotNull { file ->
+                                        if (JavaClassResolver.compiledClassFile(project, file) == null) file.name else null
+                                    }
+                            } else {
+                                emptyList()
+                            }
+                            resolvedFiles to missing
+                        },
+                    ).executeSynchronously()
+                    val basePath = project.basePath ?: return
+                    val projectRoot = java.nio.file.Paths.get(basePath)
+                    val expanded = if (compiled) {
+                        ClassFileExpander.expand(files, settings.withInnerClasses)
+                    } else {
+                        files
+                    }
+                    val pairs = expanded.mapNotNull { file ->
+                        PathMappingResolver.resolve(projectRoot, file, profile.mappings)?.let { file to it }
+                    }
+                    when {
+                        pairs.isNotEmpty() -> compareFiles(project, pairs, profile, vFiles, missingCompiled, indicator)
+                        compiled && missingCompiled.isNotEmpty() ->
+                            UploaderNotifications.error(
+                                project,
+                                MyMessageBundle.message("compare.compiled.not.built", missingCompiled.joinToString("\n")),
+                            )
+                        compiled ->
+                            UploaderNotifications.error(project, MyMessageBundle.message("compare.compiled.not.built.none"))
+                        else ->
+                            UploaderNotifications.error(project, MyMessageBundle.message("upload.no.mapping", profile.name))
+                    }
+                } catch (error: ProcessCanceledException) {
+                    throw error
+                } catch (error: Exception) {
+                    UploaderNotifications.error(
+                        project,
+                        MyMessageBundle.message("compare.failed", profile.name, error.message ?: error.javaClass.simpleName),
+                    )
                 }
-        val basePath = project.basePath ?: return
-        val projectRoot = java.nio.file.Paths.get(basePath)
-        val expanded = if (compiled) {
-            ClassFileExpander.expand(files, settings.withInnerClasses)
-            } else {
-            files
             }
-        val pairs = mutableListOf<Pair<Path, String>>()
-        expanded.forEach { file ->
-            val remote = PathMappingResolver.resolve(projectRoot, file, profile.mappings) ?: return@forEach
-            pairs.add(file to remote)
-            }
-        when {
-            !pairs.isEmpty() ->
-                runCompare(project, pairs, profile, vFiles, missingCompiled)
-            compiled && missingCompiled.isNotEmpty() ->
-                UploaderNotifications.error(
-                    project,
-                    MyMessageBundle.message("compare.compiled.not.built", missingCompiled.joinToString("\n")),
-                  )
-            compiled ->
-                UploaderNotifications.error(project, MyMessageBundle.message("compare.compiled.not.built.none"))
-            else ->
-                UploaderNotifications.error(project, MyMessageBundle.message("upload.no.mapping", profile.name))
-          }
-      }
+        }.queue()
+    }
 
-    private fun runCompare(
+    private fun compareFiles(
         project: Project,
         pairs: List<Pair<Path, String>>,
         profile: ServerProfile,
         vFiles: List<VirtualFile>,
         missingCompiled: List<String>,
-     ) {
-        object : Task.Backgroundable(project, compareProgress(mode, profile.name), true) {
-            override fun run(indicator: ProgressIndicator) {
-                try {
-                    val password = PasswordStore.get(profile.id)?.toByteArray()
-                    if (password == null) {
-                        UploaderNotifications.error(project, MyMessageBundle.message("error.password.missing", profile.name))
-                        return
-                          }
-                    val service = ApplicationManager.getApplication().getService(SftpUploadService::class.java)
-                    val results = mutableListOf<CompareResult>()
-                    pairs.forEach { (local, remote) ->
-                        indicator.checkCanceled()
-                        val bytes = try {
-                            service.download(profile, PasswordAuthentication(password), remote, indicator::checkCanceled)
-                             } catch (_: RemoteFileMissingException) {
-                            results.add(CompareResult(local, null, remote))
-                            return@forEach
-                             }
-                        results.add(CompareResult(local, bytes, remote))
-                          }
-                    ApplicationManager.getApplication().invokeLater {
-                        showDiffView(project, results, profile, vFiles)
-                        if (missingCompiled.isNotEmpty()) {
-                            UploaderNotifications.error(
-                                project,
-                                MyMessageBundle.message("compare.compiled.not.built", missingCompiled.joinToString("\n")),
-                              )
-                          }
-                          }
-                    } catch (error: ProcessCanceledException) {
-                        throw error
-                      } catch (error: Exception) {
-                        UploaderNotifications.error(
-                            project,
-                            MyMessageBundle.message("compare.failed", profile.name, error.message ?: error.javaClass.simpleName),
-                          )
-                        }
-               }
-           }.queue()
-       }
+        indicator: ProgressIndicator,
+    ) {
+        val password = PasswordStore.get(profile.id)?.toByteArray()
+        if (password == null) {
+            UploaderNotifications.error(project, MyMessageBundle.message("error.password.missing", profile.name))
+            return
+        }
+        val service = ApplicationManager.getApplication().getService(SftpUploadService::class.java)
+        val results = mutableListOf<CompareResult>()
+        pairs.forEach { (local, remote) ->
+            indicator.checkCanceled()
+            val bytes = try {
+                service.download(profile, PasswordAuthentication(password), remote, indicator::checkCanceled)
+            } catch (_: RemoteFileMissingException) {
+                results.add(CompareResult(local, null, remote))
+                return@forEach
+            }
+            results.add(CompareResult(local, bytes, remote))
+        }
+        ApplicationManager.getApplication().invokeLater {
+            showDiffView(project, results, profile, vFiles)
+            if (missingCompiled.isNotEmpty()) {
+                UploaderNotifications.error(
+                    project,
+                    MyMessageBundle.message("compare.compiled.not.built", missingCompiled.joinToString("\n")),
+                )
+            }
+        }
+    }
 
     override fun getActionUpdateThread() = ActionUpdateThread.BGT
 }
