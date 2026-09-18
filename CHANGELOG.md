@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+## 1.0.6-SNAPSHOT - 2026-09-18
+
+- Support since 2023.3.3
+
 ## 1.0.5-SNAPSHOT - 2026-09-16
 
 - Compare file with remote

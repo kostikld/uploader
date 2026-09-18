@@ -25,6 +25,7 @@ import org.kavo.uploader.upload.UploadStrategy
 import org.kavo.uploader.upload.uploadWithRsyncFallback
 import java.nio.file.Path
 import java.nio.file.Paths
+import java.util.concurrent.Callable
 
 class UploadToServerActionGroup : ActionGroup(
     MyMessageBundle.message("action.upload.group"),
@@ -62,18 +63,24 @@ private class UploadToProfileAction(private val profile: ServerProfile) : AnActi
     override fun actionPerformed(event: AnActionEvent) {
         val project = event.project ?: return
         val vFiles = event.getData(CommonDataKeys.VIRTUAL_FILE_ARRAY)?.toList().orEmpty()
-        val files: List<Path> = ReadAction.computeBlocking<List<Path>, RuntimeException> {
-            JavaClassResolver.classFilesFor(project, vFiles, SftpSettings.getInstance().uploadJavaClassFiles)
-              } as List<Path>
-        val requests = resolveRequests(project, files, profile)
-        if (requests == null) {
-            UploaderNotifications.error(project, MyMessageBundle.message("upload.no.mapping", profile.name))
-            return
-           }
 
         object : Task.Backgroundable(project, MyMessageBundle.message("upload.progress", profile.name), true) {
             override fun run(indicator: ProgressIndicator) {
                 try {
+                    val files = ReadAction.nonBlocking(
+                        Callable {
+                            JavaClassResolver.classFilesFor(
+                                project,
+                                vFiles,
+                                SftpSettings.getInstance().uploadJavaClassFiles,
+                            )
+                        },
+                    ).executeSynchronously()
+                    val requests = resolveRequests(project, files, profile)
+                    if (requests == null) {
+                        UploaderNotifications.error(project, MyMessageBundle.message("upload.no.mapping", profile.name))
+                        return
+                    }
                     val password = PasswordStore.get(profile.id)?.toByteArray()
                     if (password == null) {
                         UploaderNotifications.error(
