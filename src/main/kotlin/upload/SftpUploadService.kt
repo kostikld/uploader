@@ -26,6 +26,9 @@ data class CommandExecutionResult(
     val isOutputTruncated: Boolean,
 )
 
+class RemoteFileMissingException(remoteFile: String) :
+      RuntimeException("Remote file not found: $remoteFile")
+
 internal const val MAX_STANDARD_OUTPUT_BYTES = 64 * 1024
 
 internal class BoundedStandardOutput(private val maximumBytes: Int) {
@@ -96,7 +99,29 @@ class SftpUploadService {
 
     fun testConnection(profile: ServerProfile, authentication: SftpAuthentication) {
         withChannel(profile, authentication) { channel -> channel.pwd() }
-      }
+       }
+
+    fun download(
+        profile: ServerProfile,
+        authentication: SftpAuthentication,
+        remoteFile: String,
+        checkCanceled: () -> Unit = {},
+     ): ByteArray {
+        require(remoteFile.startsWith("/")) { "Remote path must be absolute: $remoteFile" }
+        return withChannel(profile, authentication) { channel ->
+            checkCanceled()
+            try {
+                channel.get(remoteFile).use { input ->
+                    input.readAllBytes()
+                 }
+            } catch (error: SftpException) {
+                if (error.id == ChannelSftp.SSH_FX_NO_SUCH_FILE) {
+                    throw RemoteFileMissingException(remoteFile)
+                 }
+                throw error
+            }
+         }
+       }
 
     fun uploadViaRsync(
         profile: ServerProfile,

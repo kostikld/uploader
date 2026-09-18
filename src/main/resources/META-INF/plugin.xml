@@ -36,11 +36,23 @@
      </extensions>
 
        <actions>
-           <group id="org.kavo.uploader.UploadToServer"
-                 class="org.kavo.uploader.actions.UploadToServerActionGroup"
-                 text="Upload to server"
-                 popup="true">
-               <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
-            </group>
+            <group id="org.kavo.uploader.UploadToServer"
+                  class="org.kavo.uploader.actions.UploadToServerActionGroup"
+                  text="Upload to server"
+                  popup="true">
+                <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
+              </group>
+             <group id="org.kavo.uploader.CompareWithServer"
+                  class="org.kavo.uploader.actions.CompareWithServerActionGroup"
+                  text="Compare with server"
+                  popup="true">
+                 <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
+               </group>
+             <group id="org.kavo.uploader.CompareCompiled"
+                  class="org.kavo.uploader.actions.CompareCompiledActionGroup"
+                  text="Compare compiled with server"
+                  popup="true">
+                 <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
+               </group>
         </actions>
 </idea-plugin>

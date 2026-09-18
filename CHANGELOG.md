@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+## 1.0.5-SNAPSHOT - 2026-09-16
+
+- Compare file with remote
+
 ## 1.0.4-SNAPSHOT - 2026-09-16
 
 - Support Rsync, Disabled by default
