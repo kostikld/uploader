@@ -71,6 +71,9 @@ internal fun isSuccessfulCommandExit(exitStatus: Int): Boolean = exitStatus == 0
 internal fun escapeSingleQuoteShell(value: String): String =
      value.replace("'", "'\\''")
 
+internal fun quoteForRemoteShell(path: String): String =
+     "'" + path.replace("'", "'\\''") + "'"
+
 @Service(Service.Level.APP)
 class SftpUploadService {
     fun upload(
@@ -179,7 +182,7 @@ class SftpUploadService {
 
     internal fun buildRsyncCommand(profile: ServerProfile, password: ByteArray?, request: UploadRequest): List<String> {
         val source = request.localFile.toAbsolutePath().toString()
-        val remote = "${profile.username}@${profile.host}:${request.remoteFile}"
+        val remote = "${profile.username}@${profile.host}:${quoteForRemoteShell(request.remoteFile)}"
         val ssh = buildSshBase(profile, password).joinToString(" ")
         return listOf(
               "rsync",
@@ -213,8 +216,8 @@ class SftpUploadService {
 
      private fun runRemoteMkdir(profile: ServerProfile, password: ByteArray?, remoteDirectory: String, helper: File?) {
          if (remoteDirectory == "/") return
-         val command = buildSshBase(profile, password) +
-                     listOf("${profile.username}@${profile.host}", "mkdir", "-p", remoteDirectory)
+          val command = buildSshBase(profile, password) +
+                      listOf("${profile.username}@${profile.host}", "mkdir", "-p", quoteForRemoteShell(remoteDirectory))
          runNamedProcess(command.first(), command, helper, errorLabel = "mkdir")
         }
 

@@ -60,7 +60,7 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
             add(JButton(MyMessageBundle.message("server.add")).apply {
                 addActionListener { editProfile(null) }
              })
-            add(JButton(MyMessageBundle.message("server.upload.changed")).apply {
+            add(JButton(MyMessageBundle.message("server.upload.git_changed")).apply {
                 addActionListener { launchUploadChangedFiles(project) }
               })
          }, BorderLayout.SOUTH)

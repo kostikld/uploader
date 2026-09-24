@@ -3,6 +3,7 @@ package org.kavo.uploader.upload
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.nio.file.Files
@@ -61,7 +62,30 @@ class JavaClassResolverTest {
         assertEquals(populated.resolve("com/pkg/Foo.class"), result)
           }
 
-@Test
+     @Test
+     fun `conventional class roots include maven and gradle outputs`() {
+         val sourceRoot = root.resolve("jbss-cbm-api/src/main/java")
+
+         val roots = JavaClassResolver.conventionalClassRoots(sourceRoot)
+
+         assertTrue(roots.contains(sourceRoot.resolveSibling("target/classes")))
+         assertTrue(roots.contains(sourceRoot.resolveSibling("build/classes/java/main")))
+         assertTrue(roots.contains(sourceRoot.resolveSibling("out/classes")))
+            }
+
+     @Test
+     fun `resolves class from conventional maven output root when model has no class root`() {
+         val sourceRoot = root.resolve("jbss-cbm-api/src/main/java")
+         val source = sourceRoot.resolve("com/pkg/Foo.java")
+         val mavenClasses = root.resolve("jbss-cbm-api/target/classes")
+         create(mavenClasses.resolve("com/pkg/Foo.class"))
+
+         val result = JavaClassResolver.mapClassFile(source, sourceRoot, JavaClassResolver.conventionalClassRoots(sourceRoot))
+
+         assertEquals(mavenClasses.resolve("com/pkg/Foo.class"), result)
+             }
+
+     @Test
      fun `ignores non java files`() {
          val sourceRoot = root.resolve("src/main")
          val config = sourceRoot.resolve("application.properties")

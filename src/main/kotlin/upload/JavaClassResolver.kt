@@ -42,10 +42,42 @@ object JavaClassResolver {
     private fun resolveClassFile(project: Project, file: VirtualFile): Path? {
         val fileIndex = ProjectFileIndex.getInstance(project)
         val sourceRoot = fileIndex.getSourceRootForFile(file) ?: return null
-        val module = fileIndex.getModuleForFile(file) ?: return null
-        val classRoots = OrderEnumerator.orderEntries(module).productionOnly().classes()
-             .getRoots()
-             .map { Paths.get(it.path) }
-        return mapClassFile(Paths.get(file.path), Paths.get(sourceRoot.path), classRoots)
-     }
+        val sourceRootPath = Paths.get(sourceRoot.path)
+
+        val moduleClassRoots = fileIndex.getModuleForFile(file)
+             ?.let { module ->
+                 OrderEnumerator.orderEntries(module).productionOnly().classes()
+                      .getRoots()
+                      .map { Paths.get(it.path) }
+              }
+             .orEmpty()
+
+        // The IDE module model can be out of sync for Maven/Gradle projects, where
+        // target/classes exists on disk but is not registered as a class root. Fall
+        // back to the conventional output locations of the owning module.
+        val classRoots = moduleClassRoots + conventionalClassRoots(sourceRootPath)
+        return mapClassFile(Paths.get(file.path), sourceRootPath, classRoots)
+      }
+
+    internal fun conventionalClassRoots(sourceRoot: Path): List<Path> {
+        val roots = LinkedHashSet<Path>()
+        var current = sourceRoot
+        repeat(MAX_CONVENTION_ANCESTORS) {
+            CONVENTION_OUTPUTS.forEach { output ->
+                roots.add(current.resolve(output).normalize())
+             }
+            current = current.parent ?: return roots.toList()
+         }
+        return roots.toList()
+       }
 }
+
+private const val MAX_CONVENTION_ANCESTORS = 8
+
+private val CONVENTION_OUTPUTS = listOf(
+     "target/classes",
+     "build/classes/java/main",
+     "build/classes/kotlin/main",
+     "build/classes/groovy/main",
+     "out/classes",
+)

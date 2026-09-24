@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+## 1.0.8 - 2026-09-24
+
+- Fix "Upload compiled to remote" using rsync when a class has inner classes
+
 ## 1.0.6-SNAPSHOT - 2026-09-18
 
 - Support since 2023.3.3
