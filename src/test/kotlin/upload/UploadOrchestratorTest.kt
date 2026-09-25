@@ -17,34 +17,46 @@ class UploadOrchestratorTest {
 
         assertEquals(
             listOf(
-                 "rsync",
-                 "-avz",
-                 "-e",
-                 "ssh -p 22 -o BatchMode=yes -o StrictHostKeyChecking=no",
-                 "/project/a.txt",
-                 "user@example.com:/remote/a.txt",
-              ),
-            command,
-          )
-     }
+                  "rsync",
+                   "-avz",
+                   "-e",
+                   "ssh -p 22 -o BatchMode=yes -o StrictHostKeyChecking=no",
+                   "/project/a.txt",
+                   "user@example.com:'/remote/a.txt'",
+                ),
+             command,
+            )
+      }
 
       @Test
      fun `rsync command supplies password via SSH_ASKPASS when present`() {
          val command = SftpUploadService().buildRsyncCommand(profile, password, request)
 
-         assertEquals(
-             listOf(
+        assertEquals(
+            listOf(
                   "rsync",
                    "-avz",
                    "-e",
                    "ssh -p 22 -o BatchMode=no -o StrictHostKeyChecking=no",
                    "/project/a.txt",
-                   "user@example.com:/remote/a.txt",
+                   "user@example.com:'/remote/a.txt'",
                 ),
              command,
+            )
+        assertTrue("sshpass must not be used", command.none { it == "sshpass" })
+        }
+
+      @Test
+      fun `rsync command single-quotes remote path so inner class dollar sign is not expanded`() {
+          val inner = UploadRequest(
+              java.nio.file.Paths.get("/project/Request\$Builder.class"),
+               "/remote/com/example/Request\$Builder.class",
            )
-         assertTrue("sshpass must not be used", command.none { it == "sshpass" })
-       }
+
+          val command = SftpUploadService().buildRsyncCommand(profile, null, inner)
+
+          assertEquals("user@example.com:'/remote/com/example/Request\$Builder.class'", command.last())
+      }
 
      @Test
     fun `orchestrator uses sftp directly when rsync disabled`() {

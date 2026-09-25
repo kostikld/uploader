@@ -67,20 +67,32 @@ private class UploadToProfileAction(private val profile: ServerProfile) : AnActi
         object : Task.Backgroundable(project, MyMessageBundle.message("upload.progress", profile.name), true) {
             override fun run(indicator: ProgressIndicator) {
                 try {
-                    val files = ReadAction.nonBlocking(
+                    val uploadClassFiles = SftpSettings.getInstance().uploadJavaClassFiles
+                    val (files, missingCompiled) = ReadAction.nonBlocking(
                         Callable {
-                            JavaClassResolver.classFilesFor(
-                                project,
-                                vFiles,
-                                SftpSettings.getInstance().uploadJavaClassFiles,
-                            )
-                        },
-                    ).executeSynchronously()
+                            val resolvedFiles = JavaClassResolver.classFilesFor(project, vFiles, uploadClassFiles)
+                            val missing = if (uploadClassFiles) {
+                                vFiles.filter { it.name.endsWith(".java") }
+                                    .mapNotNull { file ->
+                                        if (JavaClassResolver.compiledClassFile(project, file) == null) file.name else null
+                                     }
+                            } else {
+                                emptyList()
+                             }
+                            resolvedFiles to missing
+                         },
+                     ).executeSynchronously()
                     val requests = resolveRequests(project, files, profile)
                     if (requests == null) {
-                        UploaderNotifications.error(project, MyMessageBundle.message("upload.no.mapping", profile.name))
+                        UploaderNotifications.error(
+                            project,
+                            if (missingCompiled.isNotEmpty())
+                                MyMessageBundle.message("upload.compiled.not.built", missingCompiled.joinToString("\n"))
+                            else
+                                MyMessageBundle.message("upload.no.mapping", profile.name),
+                           )
                         return
-                    }
+                       }
                     val password = PasswordStore.get(profile.id)?.toByteArray()
                     if (password == null) {
                         UploaderNotifications.error(
@@ -133,8 +145,9 @@ internal fun resolveRequests(
     val basePath = project.basePath ?: return null
     val projectRoot = Paths.get(basePath)
     val expanded = ClassFileExpander.expand(files, SftpSettings.getInstance().withInnerClasses)
-    return expanded.map { file ->
-        val remote = PathMappingResolver.resolve(projectRoot, file, profile.mappings) ?: return null
+    val requests = expanded.mapNotNull { file ->
+        val remote = PathMappingResolver.resolve(projectRoot, file, profile.mappings) ?: return@mapNotNull null
         UploadRequest(file, remote)
-     }
+      }
+    return requests.ifEmpty { null }
 }

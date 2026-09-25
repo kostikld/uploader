@@ -70,7 +70,7 @@ abstract class CompareActionGroup(
     override fun getActionUpdateThread() = ActionUpdateThread.BGT
 }
 
-class CompareWithServerActionGroup : CompareActionGroup(CompareMode.SOURCE)
+class CompareWithRemoteActionGroup : CompareActionGroup(CompareMode.SOURCE)
 
 class CompareCompiledActionGroup : CompareActionGroup(CompareMode.COMPILED)
 
