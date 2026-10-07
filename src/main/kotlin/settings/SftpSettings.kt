@@ -27,6 +27,9 @@ enum class ServerActionValidationError {
     DUPLICATE_NAME,
 }
 
+fun pathSegments(path: String): List<String> =
+    path.split('/').filter { it.isNotEmpty() }
+
 fun validateServerActions(actions: List<ServerAction>): ServerActionValidationError? {
     val names = mutableSetOf<String>()
     actions.forEach { action ->
@@ -40,6 +43,7 @@ fun validateServerActions(actions: List<ServerAction>): ServerActionValidationEr
 data class ServerProfile(
     var id: String = UUID.randomUUID().toString(),
     var name: String = "",
+    var folder: String = "",
     var host: String = "",
     var port: Int = 22,
     var username: String = "",
@@ -50,6 +54,7 @@ data class ServerProfile(
 
 data class SftpSettingsState(
     var servers: MutableList<ServerProfile> = mutableListOf(),
+    var folders: MutableList<String> = mutableListOf(),
     var withInnerClasses: Boolean = true,
     var uploadJavaClassFiles: Boolean = true,
     var newServerUseRsync: Boolean = false,
@@ -67,6 +72,48 @@ class SftpSettings : PersistentStateComponent<SftpSettingsState> {
     }
 
     fun servers(): List<ServerProfile> = state.servers
+
+    fun folders(): List<String> =
+        (state.folders + state.servers.map { it.folder })
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .sorted()
+
+    fun addFolder(name: String): Boolean {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty() || state.folders.any { it == trimmed }) return false
+        state.folders.add(trimmed)
+        return true
+    }
+
+    fun renameFolder(from: String, to: String) {
+        val oldPrefix = "$from/"
+        fun migrate(old: String): String =
+            when {
+                old == from -> to
+                old.startsWith(oldPrefix) -> "$to/" + old.removePrefix(oldPrefix)
+                else -> old
+            }
+        state.folders.replaceAll { migrate(it) }
+        state.servers.forEach { profile ->
+            if (profile.folder.isNotEmpty()) {
+                profile.folder = migrate(profile.folder)
+            }
+        }
+    }
+
+    fun deleteFolder(name: String) {
+        val prefix = "$name/"
+        state.folders.removeIf { it == name || it.startsWith(prefix) }
+        state.servers.forEach { profile ->
+            when {
+                profile.folder == name -> profile.folder = ""
+                profile.folder.startsWith(prefix) -> profile.folder =
+                    profile.folder.removePrefix(prefix)
+            }
+        }
+    }
 
     var withInnerClasses: Boolean
         get() = state.withInnerClasses
