@@ -1,3 +1,4 @@
+import org.gradle.api.tasks.testing.Test
 import org.jetbrains.intellij.platform.gradle.TestFrameworkType
 import org.jetbrains.kotlin.gradle.dsl.JvmDefaultMode
 
@@ -49,4 +50,46 @@ intellijPlatform {
             }
         }
     }
+}
+
+// Integration tests live in a dedicated source set (src/integrationTest/kotlin). They spin up
+// real containers and are therefore NOT part of the default `test` task; run them manually with
+// a local container engine (Docker/Podman):
+//   ./gradlew integrationTest
+// The container image is used as-is when present locally, otherwise built from a Dockerfile:
+//   -PrsyncImage=...        (default "alpine_rsync_ssh:1.0,alpine_rsync_ssh:latest")
+//   -PrsyncDockerfile=...   (default docker/alpine_rsync_ssh/Dockerfile)
+val integration = sourceSets.create("integrationTest") {
+    compileClasspath += sourceSets.main.get().output + sourceSets.test.get().output
+    runtimeClasspath += sourceSets.main.get().output + sourceSets.test.get().output
+}
+
+configurations {
+    named("integrationTestImplementation") { extendsFrom(configurations.named("testImplementation")) }
+    named("integrationTestRuntimeOnly") { extendsFrom(configurations.named("testRuntimeOnly")) }
+}
+
+dependencies {
+    add("integrationTestImplementation", libs.testcontainers)
+    add("integrationTestImplementation", kotlin("stdlib"))
+}
+
+val integrationTest = tasks.register<Test>("integrationTest") {
+    group = "verification"
+    description = "Manual integration tests backed by a Docker/Podman container."
+
+    testClassesDirs = integration.output.classesDirs
+    classpath = integration.runtimeClasspath
+
+    systemProperty(
+        "rsync.dockerfile",
+        providers.gradleProperty("rsyncDockerfile")
+            .getOrElse(rootProject.file("docker/alpine_rsync_ssh/Dockerfile").absolutePath),
+    )
+    systemProperty(
+        "rsync.image",
+        providers.gradleProperty("rsyncImage").getOrElse("alpine_rsync_ssh:1.0,alpine_rsync_ssh:latest"),
+    )
+
+    environment("TESTCONTAINERS_RYUK_DISABLED", "true")
 }

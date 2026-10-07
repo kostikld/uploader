@@ -94,3 +94,25 @@ Run plugin tests with:
 ```
 
 The plugin is compiled against IntelliJ IDEA 2023.3.3 and declares compatibility from platform build `233`.
+
+## Manual integration tests
+
+Integration tests live in a dedicated source set under `src/integrationTest/`. They spin up
+a real container and are **not** part of the default `test` suite; run them manually with a
+local container engine (Docker or Podman):
+
+```sh
+./gradlew integrationTest
+```
+
+For example, `RsyncSshContainerTest` uploads a preconfigured directory tree to a real
+SSH/rsync container over `rsync` and verifies the transferred files are identical. When the
+image `alpine_rsync_ssh` is already present locally, it is used as-is; otherwise the image is
+built from `docker/alpine_rsync_ssh/Dockerfile`. The image and fallback Dockerfile can be
+overridden with `-PrsyncImage` and `-PrsyncDockerfile`. Under Podman, point Testcontainers
+at the machine's engine socket, for example:
+
+```sh
+DOCKER_HOST=unix://$(podman machine inspect --format '{{json .ConnectionInfo.PodmanSocket.Path}}' | tr -d '"') \
+  TESTCONTAINERS_RYUK_DISABLED=true ./gradlew integrationTest
+```

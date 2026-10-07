@@ -4,6 +4,10 @@
 
 ## Unreleased
 
+- Add integration tests in a dedicated `src/integrationTest` source set, run manually via
+  `./gradlew integrationTest` (excluded from the default `test` task). `RsyncSshContainerTest`
+  uploads a directory tree to a container over rsync and verifies the files are identical.
+
 ## 1.0.8 - 2026-09-24
 
 - Fix "Upload compiled to remote" using rsync when a class has inner classes
