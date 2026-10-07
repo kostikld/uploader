@@ -47,9 +47,7 @@ abstract class CompareActionGroup(
     true,
 ) {
     override fun getChildren(event: AnActionEvent?): Array<AnAction> =
-        SftpSettings.getInstance().servers()
-             .map { CompareWithProfileAction(it, mode) }
-             .toTypedArray()
+        serverMenuChildren { CompareWithProfileAction(it, mode) }
 
     override fun update(event: AnActionEvent) {
         val files = event.getData(CommonDataKeys.VIRTUAL_FILE_ARRAY)

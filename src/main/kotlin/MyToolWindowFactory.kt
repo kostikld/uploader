@@ -7,11 +7,12 @@ import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
 import com.intellij.openapi.ui.DialogWrapper
+import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.PopupHandler
-import com.intellij.ui.components.JBList
+import com.intellij.ui.MouseDragHelper
 import com.intellij.ui.components.JBPasswordField
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
@@ -32,6 +33,11 @@ import java.awt.event.KeyEvent
 import java.util.*
 import javax.swing.*
 import javax.swing.table.DefaultTableModel
+import javax.swing.tree.DefaultMutableTreeNode
+import javax.swing.tree.DefaultTreeCellRenderer
+import javax.swing.tree.DefaultTreeModel
+import javax.swing.tree.TreeNode
+import javax.swing.tree.TreePath
 
 class MyToolWindowFactory : ToolWindowFactory {
     override fun shouldBeAvailable(project: Project) = true
@@ -44,9 +50,12 @@ class MyToolWindowFactory : ToolWindowFactory {
 
 private class ServerProfilesPanel(private val project: Project) : JPanel(BorderLayout()) {
     private val settings = SftpSettings.getInstance()
-    private val model = DefaultListModel<ServerProfile>()
-    private val serverList = JBList(model).apply {
-        cellRenderer = ServerRenderer()
+    private val treeModel = DefaultTreeModel(ServerNode(MyMessageBundle.message("folder.root")))
+    private val serverTree = JTree(treeModel).apply {
+        isRootVisible = true
+        setShowsRootHandles(true)
+        setEditable(false)
+        cellRenderer = ServerNodeRenderer()
         addMouseListener(object : PopupHandler() {
             override fun invokePopup(component: Component, x: Int, y: Int) {
                 showContextMenu(x, y)
@@ -55,30 +64,101 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
     }
 
     init {
-        add(JBScrollPane(serverList), BorderLayout.CENTER)
+        add(JBScrollPane(serverTree), BorderLayout.CENTER)
         add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
             add(JButton(MyMessageBundle.message("server.add")).apply {
                 addActionListener { editProfile(null) }
+             })
+            add(JButton(MyMessageBundle.message("folder.add")).apply {
+                addActionListener { addFolder() }
              })
             add(JButton(MyMessageBundle.message("server.upload.git_changed")).apply {
                 addActionListener { launchUploadChangedFiles(project) }
               })
          }, BorderLayout.SOUTH)
+        serverTree.addMouseListener(DragDropTracker(serverTree, this, project))
         refresh()
     }
 
-    private fun refresh() {
-        model.clear()
-        settings.servers().forEach(model::addElement)
+    internal fun refresh() {
+        val selectedKey = selectionKey(serverTree.selectionPath?.lastPathComponent as? ServerNode)
+        val root = ServerNode(MyMessageBundle.message("folder.root"), "")
+        settings.folders().forEach { path ->
+            var parent = root
+            path.split('/').forEach { segment ->
+                val node = parent.folderChildren.firstOrNull { it.name == segment }
+                    ?: ServerNode(segment, parent.path.let { if (it.isEmpty()) segment else "$it/$segment" })
+                        .also { parent.folderChildren.add(it) }
+                parent = node
+            }
+        }
+        settings.servers().forEach { profile ->
+            val segments = pathSegments(profile.folder)
+            if (segments.isEmpty()) {
+                root.serverChildren.add(ServerNode(profile.name, "", profile))
+            } else {
+            var parent = root
+            segments.forEach { segment ->
+                val node = parent.folderChildren.firstOrNull { it.name == segment }
+                    ?: ServerNode(segment, parent.path.let { if (it.isEmpty()) segment else "$it/$segment" })
+                        .also { parent.folderChildren.add(it) }
+                parent = node
+            }
+            parent.serverChildren.add(ServerNode(profile.name, parent.path, profile))
+            }
+        }
+        treeModel.setRoot(root)
+        treeModel.reload()
+        selectedKey?.let { key ->
+            locate(root, key)?.let { serverTree.setSelectionPath(TreePath(it)) }
+        }
+    }
+
+    private fun selectionKey(node: ServerNode?): String? =
+        when {
+            node == null || node.name == MyMessageBundle.message("folder.root") -> null
+            node.profile == null -> node.path
+            else -> node.profile!!.id
+        }
+
+    private fun locate(current: ServerNode, key: String): List<ServerNode>? {
+        val match = current.profile?.id == key ||
+            (current.profile == null && key == current.path)
+        if (match) return listOf(current)
+        (current.folderChildren + current.serverChildren).forEach { child ->
+            locate(child, key)?.let { return listOf(current) + it }
+        }
+        return null
+    }
+
+    private fun addFolder() {
+        val name = Messages.showInputDialog(
+            this,
+            MyMessageBundle.message("folder.add.prompt"),
+            MyMessageBundle.message("folder.add"),
+            Messages.getQuestionIcon(),
+        )?.trim()
+        if (name.isNullOrBlank()) return
+        if (settings.addFolder(name)) {
+            refresh()
+        } else {
+            UploaderNotifications.info(project, MyMessageBundle.message("folder.exists", name))
+        }
     }
 
     private fun showContextMenu(x: Int, y: Int) {
-        val point = Point(x, y)
-        val index = serverList.locationToIndex(point)
-        if (index < 0 || !serverList.getCellBounds(index, index).contains(point)) return
+        val path = serverTree.getPathForLocation(x, y) ?: return
+        val node = path.lastPathComponent as? ServerNode ?: return
+        serverTree.setSelectionRow(serverTree.getRowForPath(path))
+        if (node.profile == null && node.path.isNotEmpty()) {
+            showFolderMenu(node, x, y)
+        } else {
+            showServerMenu(node.profile, x, y)
+        }
+    }
 
-        serverList.selectedIndex = index
-        val profile = serverList.selectedValue ?: return
+    private fun showServerMenu(profile: ServerProfile?, x: Int, y: Int) {
+        if (profile == null) return
         JPopupMenu().apply {
             add(JMenuItem(MyMessageBundle.message("server.edit")).apply {
                 addActionListener { editProfile(profile) }
@@ -90,15 +170,66 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
                 addActionListener { removeProfile(profile) }
              })
             addSeparator()
+            add(JMenu(MyMessageBundle.message("server.move")).apply {
+                add(JMenuItem(MyMessageBundle.message("folder.ungrouped")).apply {
+                    addActionListener { moveProfileToFolder(profile, "") }
+                 })
+                settings.folders().forEach { folder ->
+                    add(JMenuItem(folder).apply {
+                        addActionListener { moveProfileToFolder(profile, folder) }
+                     })
+                }
+             })
+            addSeparator()
             add(JMenu(MyMessageBundle.message("server.context.actions")).apply {
                 profile.actions.forEach { action ->
                     add(JMenuItem(action.name).apply {
                         addActionListener { executeAction(profile, action) }
                      })
-                  }
-             })
-            show(serverList, x, y)
+                }
+            })
+            show(serverTree, x, y)
           }
+    }
+
+    private fun showFolderMenu(node: ServerNode, x: Int, y: Int) {
+        val folder = node.path
+        JPopupMenu().apply {
+            add(JMenuItem(MyMessageBundle.message("folder.rename")).apply {
+                addActionListener { renameFolder(folder) }
+             })
+            add(JMenuItem(MyMessageBundle.message("folder.remove")).apply {
+                addActionListener { deleteFolder(folder) }
+             })
+            show(serverTree, x, y)
+          }
+    }
+
+    private fun renameFolder(folder: String) {
+        val name = Messages.showInputDialog(
+            this,
+            MyMessageBundle.message("folder.rename.prompt", folder),
+            MyMessageBundle.message("folder.rename"),
+            Messages.getQuestionIcon(),
+        )?.trim()
+        if (name.isNullOrBlank() || name == folder) return
+        if (settings.folders().contains(name)) {
+            UploaderNotifications.info(project, MyMessageBundle.message("folder.exists", name))
+            return
+        }
+        settings.renameFolder(folder, name)
+        refresh()
+    }
+
+    internal fun moveProfileToFolder(profile: ServerProfile, folder: String) {
+        profile.folder = folder
+        settings.save(profile)
+        refresh()
+    }
+
+    private fun deleteFolder(folder: String) {
+        settings.deleteFolder(folder)
+        refresh()
     }
 
     private fun executeAction(profile: ServerProfile, action: ServerAction) {
@@ -250,17 +381,80 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
     }
 }
 
-private class ServerRenderer : DefaultListCellRenderer() {
-    override fun getListCellRendererComponent(
-        list: JList<*>?,
+private class DragDropTracker(
+    private val tree: JTree,
+    private val panel: ServerProfilesPanel,
+    private val owner: Project,
+) : MouseDragHelper<JTree>(owner, tree) {
+    private var dragged: ServerProfile? = null
+
+    override fun canStartDragging(component: javax.swing.JComponent, pressedOnScreenPoint: java.awt.Point): Boolean =
+        dragged != null
+
+    override fun processMousePressed(event: java.awt.event.MouseEvent) {
+        dragged = if (event.button == 1) nodeAt(event.point)?.profile else null
+    }
+
+    override fun canFinishDragging(event: java.awt.event.MouseEvent): Boolean {
+        if (dragged == null) return false
+        val target = nodeAt(event.point)
+        return target != null && target.profile == null
+    }
+
+    override fun processDragFinish(event: java.awt.event.MouseEvent, pressedOnScreen: Boolean) {
+        val profile = dragged
+        dragged = null
+        if (profile != null) {
+            nodeAt(event.point)?.let { target ->
+                if (target.profile == null) {
+                    panel.moveProfileToFolder(profile, target.path)
+                }
+            }
+        }
+    }
+
+    override fun processDrag(event: java.awt.event.MouseEvent, pressedOnScreenPoint: java.awt.Point, currentOnScreenPoint: java.awt.Point) {}
+
+    private fun nodeAt(point: java.awt.Point): ServerNode? =
+        tree.getPathForLocation(point.x, point.y)?.lastPathComponent as? ServerNode
+}
+
+private class ServerNode(
+    val name: String,
+    val path: String = name,
+    val profile: ServerProfile? = null,
+) : DefaultMutableTreeNode() {
+    val folderChildren: MutableList<ServerNode> = mutableListOf()
+    val serverChildren: MutableList<ServerNode> = mutableListOf()
+    private val childOrder: List<ServerNode>
+        get() = folderChildren + serverChildren
+
+    override fun getUserObject(): Any = this
+    override fun isLeaf(): Boolean = childOrder.isEmpty()
+    override fun getChildCount(): Int = childOrder.size
+    override fun getChildAt(index: Int): TreeNode = childOrder[index]
+
+    val displayName: String
+        get() = if (profile != null) "${profile.name} — ${profile.username}@${profile.host}:${profile.port}" else name
+}
+
+private class ServerNodeRenderer : DefaultTreeCellRenderer() {
+    override fun getTreeCellRendererComponent(
+        tree: JTree?,
         value: Any?,
-        index: Int,
-        isSelected: Boolean,
-        cellHasFocus: Boolean,
+        selected: Boolean,
+        expanded: Boolean,
+        leaf: Boolean,
+        row: Int,
+        hasFocus: Boolean,
     ): Component {
-        val component = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus) as JLabel
-        val profile = value as? ServerProfile
-        component.text = profile?.let { "${it.name} — ${it.username}@${it.host}:${it.port}" } ?: ""
+        val component = super.getTreeCellRendererComponent(tree, value, selected, expanded, leaf, row, hasFocus) as JLabel
+        val node = value as? ServerNode
+        component.text = node?.displayName.orEmpty()
+        component.icon = when {
+            node == null || node.profile != null -> this.leafIcon
+            else -> this.openIcon
+        }
         return component
     }
 }
@@ -269,6 +463,7 @@ private class ServerProfileDialog(private val project: Project, existing: Server
     private val isNewProfile = existing == null
     private val profileId = existing?.id ?: UUID.randomUUID().toString()
     private val nameField = JBTextField(existing?.name.orEmpty())
+    private val folderField = JBTextField(existing?.folder.orEmpty())
     private val hostField = JBTextField(existing?.host.orEmpty())
     private val portField = JSpinner(SpinnerNumberModel(existing?.port ?: 22, 1, 65535, 1))
     private val usernameField = JBTextField(existing?.username.orEmpty())
@@ -376,6 +571,7 @@ private class ServerProfileDialog(private val project: Project, existing: Server
 
         return FormBuilder.createFormBuilder()
             .addLabeledComponent(MyMessageBundle.message("server.name"), nameField)
+            .addLabeledComponent(MyMessageBundle.message("server.folder"), folderField)
             .addLabeledComponent(MyMessageBundle.message("server.host"), hostField)
             .addLabeledComponent(MyMessageBundle.message("server.port"), portField)
             .addLabeledComponent(MyMessageBundle.message("server.username"), usernameField)
@@ -406,6 +602,10 @@ private class ServerProfileDialog(private val project: Project, existing: Server
 
     private fun validateProfile(): ValidationInfo? {
         if (nameField.text.isBlank()) return ValidationInfo(MyMessageBundle.message("validation.required"), nameField)
+        val folder = folderField.text.trim()
+        if (folder.isNotEmpty() && folder.split('/').any { it == ".." }) {
+            return ValidationInfo(MyMessageBundle.message("validation.folder.path"), folderField)
+        }
         if (hostField.text.isBlank()) return ValidationInfo(MyMessageBundle.message("validation.required"), hostField)
         if (usernameField.text.isBlank()) return ValidationInfo(
             MyMessageBundle.message("validation.required"),
@@ -452,6 +652,7 @@ private class ServerProfileDialog(private val project: Project, existing: Server
         return ServerProfile(
             id = profileId,
             name = nameField.text.trim(),
+            folder = folderField.text.trim(),
             host = hostField.text.trim(),
             port = portField.value as Int,
             username = usernameField.text.trim(),

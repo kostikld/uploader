@@ -32,9 +32,7 @@ class UploadToServerActionGroup : ActionGroup(
     true,
 ) {
     override fun getChildren(event: AnActionEvent?): Array<AnAction> =
-        SftpSettings.getInstance().servers()
-            .map { UploadToProfileAction(it) }
-            .toTypedArray()
+        serverMenuChildren { UploadToProfileAction(it) }
 
     override fun update(event: AnActionEvent) {
         val files = event.getData(CommonDataKeys.VIRTUAL_FILE_ARRAY)
