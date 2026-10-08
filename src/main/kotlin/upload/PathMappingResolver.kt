@@ -5,6 +5,30 @@ import java.nio.file.Path
 
 object PathMappingResolver {
     fun resolve(projectRoot: Path, file: Path, mappings: List<PathMapping>): String? {
+        val match = resolveMatch(projectRoot, file, mappings) ?: return null
+        val (mapping, remainder) = match
+        return joinRemote(mapping.remotePath, remainder)
+    }
+
+    fun resolveLocal(
+        projectRoot: Path,
+        file: Path,
+        mappings: List<PathMapping>,
+        basePath: String,
+    ): String? {
+        val match = resolveMatch(projectRoot, file, mappings) ?: return null
+        val (mapping, remainder) = match
+        val remote = normalizeRemote(mapping.remotePath)
+        val relative = normalizeLocal(remainder)
+        val base = basePath.trim().replace('\\', '/')
+        val body = listOf(base.trim('/'), remote.trim('/'), relative)
+            .filter { it.isNotEmpty() }
+            .joinToString("/")
+        val absolute = base.startsWith("/") || remote.startsWith("/")
+        return if (absolute) "/$body" else body
+    }
+
+    private fun resolveMatch(projectRoot: Path, file: Path, mappings: List<PathMapping>): Pair<PathMapping, String>? {
         val root = projectRoot.toAbsolutePath().normalize()
         val normalizedFile = file.toAbsolutePath().normalize()
         if (!normalizedFile.startsWith(root)) return null
@@ -24,8 +48,7 @@ object PathMappingResolver {
         } else {
             projectRelative.removePrefix(localRoot).removePrefix("/")
         }
-
-        return joinRemote(mapping.remotePath, remainder)
+        return mapping to remainder
     }
 
     fun normalizeLocal(path: String): String =

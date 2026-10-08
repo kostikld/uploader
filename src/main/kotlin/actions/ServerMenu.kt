@@ -5,10 +5,15 @@ import com.intellij.openapi.actionSystem.DefaultActionGroup
 import org.kavo.uploader.settings.ServerProfile
 import org.kavo.uploader.settings.SftpSettings
 import org.kavo.uploader.settings.pathSegments
+import org.kavo.uploader.settings.ServerType
 
 fun serverMenuChildren(
     factory: (ServerProfile) -> AnAction,
-): Array<AnAction> = serverMenuChildren(SftpSettings.getInstance().servers(), factory)
+): Array<AnAction> = serverMenuChildren(SftpSettings.getInstance().remoteServers(), factory)
+
+fun localMenuChildren(
+    factory: (ServerProfile) -> AnAction,
+): Array<AnAction> = serverMenuChildren(SftpSettings.getInstance().localServers(), factory)
 
 fun serverMenuChildren(
     servers: List<ServerProfile>,
