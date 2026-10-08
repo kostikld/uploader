@@ -15,6 +15,13 @@ data class PathMapping(
     var remotePath: String = "",
 )
 
+enum class ServerType {
+    SFTP,
+    LOCAL,
+}
+
+const val LOCAL_PROFILE_ID = "local"
+
 data class ServerAction(
     var id: String = UUID.randomUUID().toString(),
     var name: String = "",
@@ -48,6 +55,8 @@ data class ServerProfile(
     var port: Int = 22,
     var username: String = "",
     var useRsync: Boolean = false,
+    var type: ServerType = ServerType.SFTP,
+    var basePath: String = "",
     var mappings: MutableList<PathMapping> = mutableListOf(),
     var actions: MutableList<ServerAction> = mutableListOf(),
 )
@@ -72,6 +81,24 @@ class SftpSettings : PersistentStateComponent<SftpSettingsState> {
     }
 
     fun servers(): List<ServerProfile> = state.servers
+
+    fun local(): ServerProfile {
+        val index = state.servers.indexOfFirst { it.type == ServerType.LOCAL }
+        if (index >= 0) return state.servers[index]
+        val profile = ServerProfile(
+            id = LOCAL_PROFILE_ID,
+            name = "Local",
+            type = ServerType.LOCAL,
+        )
+        state.servers.add(profile)
+        return profile
+    }
+
+    fun remoteServers(): List<ServerProfile> =
+        state.servers.filter { it.type == ServerType.SFTP }
+
+    fun localServers(): List<ServerProfile> =
+        state.servers.filter { it.type == ServerType.LOCAL }
 
     fun folders(): List<String> =
         (state.folders + state.servers.map { it.folder })

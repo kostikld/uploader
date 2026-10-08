@@ -50,9 +50,15 @@
                  <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
                </group>
              <group id="org.kavo.uploader.CompareCompiled"
-                  class="org.kavo.uploader.actions.CompareCompiledActionGroup"
-                  text="Compare Compiled with Remote"
-                  popup="true">
+                   class="org.kavo.uploader.actions.CompareCompiledActionGroup"
+                   text="Compare Compiled with Remote"
+                   popup="true">
+                 <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
+               </group>
+             <group id="org.kavo.uploader.CopyToLocal"
+                   class="org.kavo.uploader.actions.CopyToLocalActionGroup"
+                   text="Copy to Local"
+                   popup="true">
                  <add-to-group group-id="ProjectViewPopupMenu" anchor="last"/>
                </group>
         </actions>

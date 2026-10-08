@@ -120,7 +120,112 @@ class UploadOrchestratorTest {
         assertFalse(ServerProfile().useRsync)
       }
 
-     private fun recordingStrategy() = object : UploadStrategy {
+     @Test
+    fun `new profile defaults to sftp type`() {
+        assertEquals(org.kavo.uploader.settings.ServerType.SFTP, ServerProfile().type)
+    }
+
+    @Test
+    fun `orchestrator uses local strategy for local profiles`() {
+        val local = recordingStrategy()
+        val sftp = recordingStrategy()
+
+        profile.type = org.kavo.uploader.settings.ServerType.LOCAL
+        uploadWithStrategy(profile, null, listOf(request), {}, local, sftp, sftp)
+
+        assertTrue(local.invoked)
+        assertFalse(sftp.invoked)
+    }
+
+    @Test
+    fun `copyLocal copies local files to local destinations`() {
+        val root = java.nio.file.Files.createTempDirectory("copy-local-test")
+        val source = root.resolve("a.txt")
+        java.nio.file.Files.write(source, "hi".toByteArray())
+        val destination = root.resolve("out/a.txt")
+
+        SftpUploadService().copyLocal(listOf(UploadRequest(source, destination.toString())))
+
+        assertEquals("hi", java.nio.file.Files.readAllBytes(destination).decodeToString())
+    }
+
+    @Test
+    fun `copyLocal overwrites existing local destination file`() {
+        val root = java.nio.file.Files.createTempDirectory("copy-local-test")
+        val source = root.resolve("a.txt")
+        java.nio.file.Files.write(source, "new".toByteArray())
+        val destination = root.resolve("out/a.txt")
+        java.nio.file.Files.createDirectories(destination.parent)
+        java.nio.file.Files.write(destination, "old".toByteArray())
+
+        SftpUploadService().copyLocal(listOf(UploadRequest(source, destination.toString())))
+
+        assertEquals("new", java.nio.file.Files.readAllBytes(destination).decodeToString())
+    }
+
+    @Test
+    fun `copyLocal copies into existing local directory when destination path is a directory`() {
+        val root = java.nio.file.Files.createTempDirectory("copy-local-test")
+        val source = root.resolve("a.txt")
+        java.nio.file.Files.write(source, "new".toByteArray())
+        val destination = root.resolve("out/a.txt")
+        java.nio.file.Files.createDirectories(destination)
+
+        SftpUploadService().copyLocal(listOf(UploadRequest(source, destination.toString())))
+
+        assertEquals(
+            "new",
+            java.nio.file.Files.readAllBytes(destination.resolve(java.io.File(source.toString()).name)).decodeToString(),
+        )
+    }
+
+    @Test
+    fun `zipLocal rejects an existing archive file with a clear message`() {
+        val root = java.nio.file.Files.createTempDirectory("zip-local-test")
+        val projectRoot = root.resolve("project")
+        java.nio.file.Files.createDirectories(projectRoot)
+        val archive = java.nio.file.Paths.get("$root/archive.zip")
+        java.nio.file.Files.write(archive, ByteArray(0))
+        var message = ""
+
+        try {
+            SftpUploadService().zipLocal(
+                projectRoot,
+                archive,
+                emptyList(),
+                emptyList(),
+            )
+        } catch (error: Exception) {
+            message = error.message ?: error.javaClass.simpleName
+        }
+
+        assertTrue("expected clear error", message.contains("already exists"))
+    }
+
+    @Test
+    fun `zipLocal rejects an existing archive directory with a clear message`() {
+        val root = java.nio.file.Files.createTempDirectory("zip-local-test")
+        val projectRoot = root.resolve("project")
+        java.nio.file.Files.createDirectories(projectRoot)
+        val archive = java.nio.file.Paths.get("$root/archive")
+        java.nio.file.Files.createDirectories(archive)
+        var message = ""
+
+        try {
+            SftpUploadService().zipLocal(
+                projectRoot,
+                archive,
+                emptyList<UploadRequest>(),
+                emptyList<org.kavo.uploader.settings.PathMapping>(),
+            )
+        } catch (error: Exception) {
+            message = error.message ?: error.javaClass.simpleName
+        }
+
+        assertTrue("expected clear error", message.contains("points to a directory"))
+    }
+
+    private fun recordingStrategy() = object : UploadStrategy {
          var invoked = false
 
          override fun upload(profile: ServerProfile, password: ByteArray?, requests: List<UploadRequest>, checkCanceled: () -> Unit) {

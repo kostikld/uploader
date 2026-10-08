@@ -38,9 +38,17 @@ class ChangedFilesDialog(
     private var result: List<UploadRow> = emptyList()
 
     private val serverButton = JButton()
+    private val zipCheckbox = JCheckBox(MyMessageBundle.message("changed.zip"))
+    private val archiveNameField = com.intellij.ui.components.JBTextField()
+    private val north = JPanel(FlowLayout(FlowLayout.LEFT))
 
     init {
         title = MyMessageBundle.message("changed.title")
+        archiveNameField.isEnabled = false
+        zipCheckbox.addActionListener {
+            archiveNameField.isEnabled =
+                server?.type == org.kavo.uploader.settings.ServerType.LOCAL && zipCheckbox.isSelected
+        }
         init()
     }
 
@@ -71,10 +79,6 @@ class ChangedFilesDialog(
         }
         applyState()
 
-        val north = JPanel(FlowLayout(FlowLayout.LEFT)).apply {
-            add(JBLabel(MyMessageBundle.message("changed.server")))
-            add(serverButton)
-        }
         val outer = JPanel(BorderLayout())
         outer.add(north, BorderLayout.NORTH)
         outer.add(JScrollPane(listPanel), BorderLayout.CENTER)
@@ -94,7 +98,29 @@ class ChangedFilesDialog(
 
     fun selectedServer(): ServerProfile? = server
 
+    fun zipSelected(): Boolean =
+        server?.type == org.kavo.uploader.settings.ServerType.LOCAL && zipCheckbox.isSelected
+
+    fun archiveName(): String = archiveNameField.text.trim()
+
+    private fun configureNorth() {
+        north.removeAll()
+        north.add(JBLabel(MyMessageBundle.message("changed.server")))
+        north.add(serverButton)
+        if (server?.type == org.kavo.uploader.settings.ServerType.LOCAL) {
+            north.add(JBLabel(MyMessageBundle.message("changed.zip")))
+            north.add(zipCheckbox)
+            north.add(JBLabel(MyMessageBundle.message("changed.zip.name")))
+            north.add(archiveNameField)
+        }
+    }
+
     private fun applyState() {
+        configureNorth()
+        val local = server?.type == org.kavo.uploader.settings.ServerType.LOCAL
+        zipCheckbox.isEnabled = local
+        zipCheckbox.isSelected = local && zipCheckbox.isSelected
+        archiveNameField.isEnabled = local && zipCheckbox.isSelected
         data.rows.forEachIndexed { index, uploadRow ->
             val check = checks[index]
             val enabled = rowIsEnabled(uploadRow, data.projectRoot, mappings)

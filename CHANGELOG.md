@@ -2,7 +2,9 @@
 
 # Uploader Changelog
 
-## Unreleased
+## 1.0.10 - 2026-10-08
+
+- Config for a local directory
 
 ## 1.0.9 - 2026-10-07
 

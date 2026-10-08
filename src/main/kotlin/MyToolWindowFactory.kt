@@ -68,19 +68,20 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
         add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
             add(JButton(MyMessageBundle.message("server.add")).apply {
                 addActionListener { editProfile(null) }
-             })
+            })
             add(JButton(MyMessageBundle.message("folder.add")).apply {
                 addActionListener { addFolder() }
-             })
+            })
             add(JButton(MyMessageBundle.message("server.upload.git_changed")).apply {
                 addActionListener { launchUploadChangedFiles(project) }
-              })
-         }, BorderLayout.SOUTH)
+            })
+        }, BorderLayout.SOUTH)
         serverTree.addMouseListener(DragDropTracker(serverTree, this, project))
         refresh()
     }
 
-    internal fun refresh() {
+    fun refresh() {
+        settings.local()
         val selectedKey = selectionKey(serverTree.selectionPath?.lastPathComponent as? ServerNode)
         val root = ServerNode(MyMessageBundle.message("folder.root"), "")
         settings.folders().forEach { path ->
@@ -97,14 +98,14 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
             if (segments.isEmpty()) {
                 root.serverChildren.add(ServerNode(profile.name, "", profile))
             } else {
-            var parent = root
-            segments.forEach { segment ->
-                val node = parent.folderChildren.firstOrNull { it.name == segment }
-                    ?: ServerNode(segment, parent.path.let { if (it.isEmpty()) segment else "$it/$segment" })
-                        .also { parent.folderChildren.add(it) }
-                parent = node
-            }
-            parent.serverChildren.add(ServerNode(profile.name, parent.path, profile))
+                var parent = root
+                segments.forEach { segment ->
+                    val node = parent.folderChildren.firstOrNull { it.name == segment }
+                        ?: ServerNode(segment, parent.path.let { if (it.isEmpty()) segment else "$it/$segment" })
+                            .also { parent.folderChildren.add(it) }
+                    parent = node
+                }
+                parent.serverChildren.add(ServerNode(profile.name, parent.path, profile))
             }
         }
         treeModel.setRoot(root)
@@ -123,7 +124,7 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
 
     private fun locate(current: ServerNode, key: String): List<ServerNode>? {
         val match = current.profile?.id == key ||
-            (current.profile == null && key == current.path)
+                (current.profile == null && key == current.path)
         if (match) return listOf(current)
         (current.folderChildren + current.serverChildren).forEach { child ->
             locate(child, key)?.let { return listOf(current) + it }
@@ -159,37 +160,42 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
 
     private fun showServerMenu(profile: ServerProfile?, x: Int, y: Int) {
         if (profile == null) return
+        val isLocal = profile.type == ServerType.LOCAL
         JPopupMenu().apply {
             add(JMenuItem(MyMessageBundle.message("server.edit")).apply {
                 addActionListener { editProfile(profile) }
-             })
-            add(JMenuItem(MyMessageBundle.message("server.test")).apply {
-                addActionListener { testConnection(profile) }
-             })
+            })
+            if (!isLocal) {
+                add(JMenuItem(MyMessageBundle.message("server.test")).apply {
+                    addActionListener { testConnection(profile) }
+                })
+            }
             add(JMenuItem(MyMessageBundle.message("server.remove")).apply {
                 addActionListener { removeProfile(profile) }
-             })
+            })
             addSeparator()
             add(JMenu(MyMessageBundle.message("server.move")).apply {
                 add(JMenuItem(MyMessageBundle.message("folder.ungrouped")).apply {
                     addActionListener { moveProfileToFolder(profile, "") }
-                 })
+                })
                 settings.folders().forEach { folder ->
                     add(JMenuItem(folder).apply {
                         addActionListener { moveProfileToFolder(profile, folder) }
-                     })
-                }
-             })
-            addSeparator()
-            add(JMenu(MyMessageBundle.message("server.context.actions")).apply {
-                profile.actions.forEach { action ->
-                    add(JMenuItem(action.name).apply {
-                        addActionListener { executeAction(profile, action) }
-                     })
+                    })
                 }
             })
+            if (!isLocal) {
+                addSeparator()
+                add(JMenu(MyMessageBundle.message("server.context.actions")).apply {
+                    profile.actions.forEach { action ->
+                        add(JMenuItem(action.name).apply {
+                            addActionListener { executeAction(profile, action) }
+                        })
+                    }
+                })
+            }
             show(serverTree, x, y)
-          }
+        }
     }
 
     private fun showFolderMenu(node: ServerNode, x: Int, y: Int) {
@@ -197,12 +203,12 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
         JPopupMenu().apply {
             add(JMenuItem(MyMessageBundle.message("folder.rename")).apply {
                 addActionListener { renameFolder(folder) }
-             })
+            })
             add(JMenuItem(MyMessageBundle.message("folder.remove")).apply {
                 addActionListener { deleteFolder(folder) }
-             })
+            })
             show(serverTree, x, y)
-          }
+        }
     }
 
     private fun renameFolder(folder: String) {
@@ -221,7 +227,7 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
         refresh()
     }
 
-    internal fun moveProfileToFolder(profile: ServerProfile, folder: String) {
+    fun moveProfileToFolder(profile: ServerProfile, folder: String) {
         profile.folder = folder
         settings.save(profile)
         refresh()
@@ -331,8 +337,8 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
         refresh()
         AppExecutorUtil.getAppExecutorService().execute {
             PasswordStore.remove(profile.id)
-          }
-      }
+        }
+    }
 
     private fun editProfile(existing: ServerProfile?) {
         val dialog = ServerProfileDialog(project, existing)
@@ -396,7 +402,7 @@ private class DragDropTracker(
 ) : MouseDragHelper<JTree>(owner, tree) {
     private var dragged: ServerProfile? = null
 
-    override fun canStartDragging(component: javax.swing.JComponent, pressedOnScreenPoint: java.awt.Point): Boolean =
+    override fun canStartDragging(component: JComponent, pressedOnScreenPoint: Point): Boolean =
         dragged != null
 
     override fun processMousePressed(event: java.awt.event.MouseEvent) {
@@ -421,9 +427,14 @@ private class DragDropTracker(
         }
     }
 
-    override fun processDrag(event: java.awt.event.MouseEvent, pressedOnScreenPoint: java.awt.Point, currentOnScreenPoint: java.awt.Point) {}
+    override fun processDrag(
+        event: java.awt.event.MouseEvent,
+        pressedOnScreenPoint: Point,
+        currentOnScreenPoint: Point
+    ) {
+    }
 
-    private fun nodeAt(point: java.awt.Point): ServerNode? =
+    private fun nodeAt(point: Point): ServerNode? =
         tree.getPathForLocation(point.x, point.y)?.lastPathComponent as? ServerNode
 }
 
@@ -443,7 +454,11 @@ private class ServerNode(
     override fun getChildAt(index: Int): TreeNode = childOrder[index]
 
     val displayName: String
-        get() = if (profile != null) "${profile.name} — ${profile.username}@${profile.host}:${profile.port}" else name
+        get() = when {
+            profile?.type == org.kavo.uploader.settings.ServerType.LOCAL -> "\uD83C\uDDE5 " + profile!!.name
+            profile != null -> "${profile.name} — ${profile.username}@${profile.host}:${profile.port}"
+            else -> name
+        }
 }
 
 private class ServerNodeRenderer : DefaultTreeCellRenderer() {
@@ -456,29 +471,34 @@ private class ServerNodeRenderer : DefaultTreeCellRenderer() {
         row: Int,
         hasFocus: Boolean,
     ): Component {
-        val component = super.getTreeCellRendererComponent(tree, value, selected, expanded, leaf, row, hasFocus) as JLabel
+        val component =
+            super.getTreeCellRendererComponent(tree, value, selected, expanded, leaf, row, hasFocus) as JLabel
         val node = value as? ServerNode
         component.text = node?.displayName.orEmpty()
         component.icon = when {
-            node == null || node.profile != null -> this.leafIcon
+            node?.profile?.type == ServerType.LOCAL -> null
+            node?.profile != null -> this.leafIcon
             else -> this.openIcon
         }
         return component
     }
 }
 
-private class ServerProfileDialog(private val project: Project, existing: ServerProfile?) : DialogWrapper(project, true) {
+private class ServerProfileDialog(private val project: Project, existing: ServerProfile?) :
+    DialogWrapper(project, true) {
     private val isNewProfile = existing == null
+    private val isLocal = existing?.type == ServerType.LOCAL
     private val profileId = existing?.id ?: UUID.randomUUID().toString()
     private val nameField = JBTextField(existing?.name.orEmpty())
     private val folderField = JBTextField(existing?.folder.orEmpty())
+    private val basePathField = JBTextField(existing?.basePath.orEmpty())
     private val hostField = JBTextField(existing?.host.orEmpty())
     private val portField = JSpinner(SpinnerNumberModel(existing?.port ?: 22, 1, 65535, 1))
     private val usernameField = JBTextField(existing?.username.orEmpty())
     private val passwordField = JBPasswordField()
     private val useRsyncCheckbox = JCheckBox(MyMessageBundle.message("server.useRsync")).apply {
         isSelected = existing?.useRsync ?: SftpSettings.getInstance().newServerUseRsync
-       }
+    }
     private val mappingsModel = object : DefaultTableModel(arrayOf("Project-relative path", "Remote directory"), 0) {
         override fun isCellEditable(row: Int, column: Int) = true
     }
@@ -522,8 +542,8 @@ private class ServerProfileDialog(private val project: Project, existing: Server
                 add(JButton(MyMessageBundle.message("mapping.remove")).apply {
                     addActionListener {
                         mappingsTable.selectedRows.sortedDescending().forEach(mappingsModel::removeRow)
-                     }
-                 })
+                    }
+                })
                 add(JButton(MyMessageBundle.message("mapping.copy")).apply {
                     addActionListener {
                         stopEditing()
@@ -531,18 +551,18 @@ private class ServerProfileDialog(private val project: Project, existing: Server
                             PathMapping(
                                 localPath = mappingsModel.getValueAt(row, 0)?.toString().orEmpty().trim(),
                                 remotePath = mappingsModel.getValueAt(row, 1)?.toString().orEmpty().trim(),
-                             )
-                          }.filterNot { it.localPath.isBlank() && it.remotePath.isBlank() }
+                            )
+                        }.filterNot { it.localPath.isBlank() && it.remotePath.isBlank() }
                         val text = ProfileTransfer.encodeMappings(mappings)
                         copyToClipboard(text)
                         UploaderNotifications.info(project, MyMessageBundle.message("mapping.copied", mappings.size))
-                     }
-                  })
+                    }
+                })
                 add(JButton(MyMessageBundle.message("mapping.import")).apply {
                     addActionListener { importMappings() }
-                  })
-             }, BorderLayout.SOUTH)
-         }
+                })
+            }, BorderLayout.SOUTH)
+        }
         mappingPanel.preferredSize = Dimension(680, 220)
         val actionsPanel = JPanel(BorderLayout()).apply {
             add(JBScrollPane(actionsTable), BorderLayout.CENTER)
@@ -553,8 +573,8 @@ private class ServerProfileDialog(private val project: Project, existing: Server
                 add(JButton(MyMessageBundle.message("server.action.remove")).apply {
                     addActionListener {
                         actionsTable.selectedRows.sortedDescending().forEach(actionsModel::removeRow)
-                      }
-                  })
+                    }
+                })
                 add(JButton(MyMessageBundle.message("server.action.copy")).apply {
                     addActionListener {
                         stopEditing()
@@ -563,35 +583,47 @@ private class ServerProfileDialog(private val project: Project, existing: Server
                                 id = actionsModel.getValueAt(row, 2)?.toString().orEmpty(),
                                 name = actionsModel.getValueAt(row, 0)?.toString().orEmpty().trim(),
                                 command = actionsModel.getValueAt(row, 1)?.toString().orEmpty().trim(),
-                              )
-                           }.filterNot { it.name.isBlank() && it.command.isBlank() }
+                            )
+                        }.filterNot { it.name.isBlank() && it.command.isBlank() }
                         val text = ProfileTransfer.encodeActions(actions)
                         copyToClipboard(text)
-                        UploaderNotifications.info(project, MyMessageBundle.message("server.action.copied", actions.size))
-                      }
-                   })
+                        UploaderNotifications.info(
+                            project,
+                            MyMessageBundle.message("server.action.copied", actions.size)
+                        )
+                    }
+                })
                 add(JButton(MyMessageBundle.message("server.action.import")).apply {
                     addActionListener { importActions() }
-                  })
-              }, BorderLayout.SOUTH)
-          }
+                })
+            }, BorderLayout.SOUTH)
+        }
         actionsPanel.preferredSize = Dimension(680, 160)
 
-        return FormBuilder.createFormBuilder()
+        val builder = FormBuilder.createFormBuilder()
             .addLabeledComponent(MyMessageBundle.message("server.name"), nameField)
             .addLabeledComponent(MyMessageBundle.message("server.folder"), folderField)
-            .addLabeledComponent(MyMessageBundle.message("server.host"), hostField)
-            .addLabeledComponent(MyMessageBundle.message("server.port"), portField)
-            .addLabeledComponent(MyMessageBundle.message("server.username"), usernameField)
-             .addLabeledComponent(
-                 MyMessageBundle.message(if (isNewProfile) "server.password" else "server.password.unchanged"),
-                 passwordField,
-              )
-             .addComponent(useRsyncCheckbox)
-             .addSeparator()
+        if (isLocal) {
+            builder.addLabeledComponent(MyMessageBundle.message("server.local.basePath"), basePathField)
+        }
+        if (!isLocal) {
+            builder
+                .addLabeledComponent(MyMessageBundle.message("server.host"), hostField)
+                .addLabeledComponent(MyMessageBundle.message("server.port"), portField)
+                .addLabeledComponent(MyMessageBundle.message("server.username"), usernameField)
+                .addLabeledComponent(
+                    MyMessageBundle.message(if (isNewProfile) "server.password" else "server.password.unchanged"),
+                    passwordField,
+                )
+                .addComponent(useRsyncCheckbox)
+                .addSeparator()
+        }
+        builder
             .addLabeledComponentFillVertically(MyMessageBundle.message("server.mappings"), mappingPanel)
-            .addLabeledComponentFillVertically(MyMessageBundle.message("server.actions"), actionsPanel)
-            .panel
+        if (!isLocal) {
+            builder.addLabeledComponentFillVertically(MyMessageBundle.message("server.actions"), actionsPanel)
+        }
+        return builder.panel
     }
 
     override fun doOKAction() {
@@ -614,14 +646,6 @@ private class ServerProfileDialog(private val project: Project, existing: Server
         if (folder.isNotEmpty() && folder.split('/').any { it == ".." }) {
             return ValidationInfo(MyMessageBundle.message("validation.folder.path"), folderField)
         }
-        if (hostField.text.isBlank()) return ValidationInfo(MyMessageBundle.message("validation.required"), hostField)
-        if (usernameField.text.isBlank()) return ValidationInfo(
-            MyMessageBundle.message("validation.required"),
-            usernameField
-        )
-        if (isNewProfile && passwordField.password.isEmpty()) {
-            return ValidationInfo(MyMessageBundle.message("validation.required"), passwordField)
-        }
 
         val localPaths = mutableSetOf<String>()
         mappings().forEach { mapping ->
@@ -632,14 +656,33 @@ private class ServerProfileDialog(private val project: Project, existing: Server
             if (!localPaths.add(local)) {
                 return ValidationInfo(MyMessageBundle.message("validation.mapping.duplicate", local), mappingsTable)
             }
-            try {
-                if (!PathMappingResolver.normalizeRemote(mapping.remotePath).startsWith("/")) {
-                    return ValidationInfo(MyMessageBundle.message("validation.remote.absolute"), mappingsTable)
+            if (!isLocal) {
+                try {
+                    if (!PathMappingResolver.normalizeRemote(mapping.remotePath).startsWith("/")) {
+                        return ValidationInfo(MyMessageBundle.message("validation.remote.absolute"), mappingsTable)
+                    }
+                } catch (_: IllegalArgumentException) {
+                    return ValidationInfo(MyMessageBundle.message("validation.remote.path"), mappingsTable)
                 }
-            } catch (_: IllegalArgumentException) {
-                return ValidationInfo(MyMessageBundle.message("validation.remote.path"), mappingsTable)
             }
         }
+
+        if (isLocal) {
+            if (basePathField.text.trim().split('/').any { it == ".." }) {
+                return ValidationInfo(MyMessageBundle.message("validation.local.path"), basePathField)
+            }
+            return null
+        }
+
+        if (hostField.text.isBlank()) return ValidationInfo(MyMessageBundle.message("validation.required"), hostField)
+        if (usernameField.text.isBlank()) return ValidationInfo(
+            MyMessageBundle.message("validation.required"),
+            usernameField
+        )
+        if (isNewProfile && passwordField.password.isEmpty()) {
+            return ValidationInfo(MyMessageBundle.message("validation.required"), passwordField)
+        }
+
         when (validateServerActions(actions())) {
             ServerActionValidationError.BLANK_NAME ->
                 return ValidationInfo(MyMessageBundle.message("validation.action.name.required"), actionsTable)
@@ -661,12 +704,14 @@ private class ServerProfileDialog(private val project: Project, existing: Server
             id = profileId,
             name = nameField.text.trim(),
             folder = folderField.text.trim(),
-            host = hostField.text.trim(),
+            host = if (isLocal) "" else hostField.text.trim(),
             port = portField.value as Int,
-            username = usernameField.text.trim(),
-            useRsync = useRsyncCheckbox.isSelected,
+            username = if (isLocal) "" else usernameField.text.trim(),
+            useRsync = if (isLocal) false else useRsyncCheckbox.isSelected,
+            type = if (isLocal) ServerType.LOCAL else ServerType.SFTP,
+            basePath = if (isLocal) basePathField.text.trim() else "",
             mappings = mappings().toMutableList(),
-            actions = actions().toMutableList(),
+            actions = if (isLocal) mutableListOf() else actions().toMutableList(),
         )
     }
 
@@ -674,23 +719,31 @@ private class ServerProfileDialog(private val project: Project, existing: Server
 
     private fun copyToClipboard(text: String) {
         CopyPasteManager.getInstance().setContents(StringSelection(text))
-      }
+    }
 
     private fun importMappings() {
-        val dialog = ImportLinesDialog(project, MyMessageBundle.message("mapping.import"), MyMessageBundle.message("import.mappings.hint"))
+        val dialog = ImportLinesDialog(
+            project,
+            MyMessageBundle.message("mapping.import"),
+            MyMessageBundle.message("import.mappings.hint")
+        )
         if (!dialog.showAndGet()) return
         val mappings = ProfileTransfer.decodeMappings(dialog.text())
         mappings.forEach { mappingsModel.addRow(arrayOf(it.localPath, it.remotePath)) }
         UploaderNotifications.info(project, MyMessageBundle.message("mapping.imported", mappings.size))
-      }
+    }
 
     private fun importActions() {
-        val dialog = ImportLinesDialog(project, MyMessageBundle.message("server.action.import"), MyMessageBundle.message("import.actions.hint"))
+        val dialog = ImportLinesDialog(
+            project,
+            MyMessageBundle.message("server.action.import"),
+            MyMessageBundle.message("import.actions.hint")
+        )
         if (!dialog.showAndGet()) return
         val actions = ProfileTransfer.decodeActions(dialog.text())
         actions.forEach { actionsModel.addRow(arrayOf(it.name, it.command, it.id)) }
         UploaderNotifications.info(project, MyMessageBundle.message("server.action.imported", actions.size))
-      }
+    }
 
     private fun mappings(): List<PathMapping> =
         (0 until mappingsModel.rowCount).map { row ->
@@ -712,7 +765,7 @@ private class ServerProfileDialog(private val project: Project, existing: Server
     private fun stopEditing() {
         if (mappingsTable.isEditing) mappingsTable.cellEditor.stopCellEditing()
         if (actionsTable.isEditing) actionsTable.cellEditor.stopCellEditing()
-       }
+    }
 }
 
 private class ImportLinesDialog(
@@ -722,12 +775,12 @@ private class ImportLinesDialog(
 ) : DialogWrapper(project, true) {
     private val textArea = JBTextArea(10, 50).apply {
         lineWrap = false
-        }
+    }
 
     init {
         title = dialogTitle
         init()
-        }
+    }
 
     fun text(): String = textArea.text
 
@@ -736,7 +789,7 @@ private class ImportLinesDialog(
         panel.add(JLabel(hint), BorderLayout.NORTH)
         panel.add(JBScrollPane(textArea), BorderLayout.CENTER)
         return panel
-        }
+    }
 }
 
 private class ActionInputDialog(
