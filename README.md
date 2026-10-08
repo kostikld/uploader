@@ -71,6 +71,7 @@ Each server profile can also enable **Upload using rsync**. If an rsync upload f
 ## Server actions
 
 Add named commands to a server profile under **Actions**. Right-click that server in the tool window and select an action to execute it through SSH. The result, exit status, and up to 64 KiB of output are shown in an IDE notification.
+You can use template parameters in actions. For example, `date -l ${option}` will prompt for an option for date.
 
 Only save and run commands you trust: actions execute on the remote server as the configured user.
 

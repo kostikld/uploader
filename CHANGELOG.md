@@ -4,9 +4,10 @@
 
 ## Unreleased
 
-- Add integration tests in a dedicated `src/integrationTest` source set, run manually via
-  `./gradlew integrationTest` (excluded from the default `test` task). `RsyncSshContainerTest`
-  uploads a directory tree to a container over rsync and verifies the files are identical.
+## 1.0.9 - 2026-10-07
+
+- Organization servers in folders
+- Template params for actions
 
 ## 1.0.8 - 2026-09-24
 

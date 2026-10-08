@@ -233,6 +233,14 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
     }
 
     private fun executeAction(profile: ServerProfile, action: ServerAction) {
+        val command = when {
+            actionTemplateParams(action.command).isEmpty() -> action.command
+            else -> {
+                val dialog = ActionInputDialog(project, action.name, actionTemplateParams(action.command))
+                if (!dialog.showAndGet()) return
+                renderActionCommand(action.command, dialog.values())
+            }
+        }
         object : Task.Backgroundable(
             project,
             MyMessageBundle.message("action.execution.progress", action.name, profile.name, "00:00"),
@@ -261,7 +269,7 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
                     }
                     updateProgress()
                     val result = ApplicationManager.getApplication().getService(SftpUploadService::class.java)
-                        .executeCommand(profile, PasswordAuthentication(password), action.command) {
+                        .executeCommand(profile, PasswordAuthentication(password), command) {
                             indicator.checkCanceled()
                             updateProgress()
                         }
@@ -729,6 +737,30 @@ private class ImportLinesDialog(
         panel.add(JBScrollPane(textArea), BorderLayout.CENTER)
         return panel
         }
+}
+
+private class ActionInputDialog(
+    private val project: Project,
+    private val actionName: String,
+    private val params: List<String>,
+) : DialogWrapper(project, true) {
+    private val fields = params.map { param -> JBTextField() }
+
+    init {
+        title = MyMessageBundle.message("action.template.dialog.title", actionName)
+        init()
+    }
+
+    fun values(): Map<String, String> =
+        params.mapIndexed { index, param -> param to fields[index].text }.toMap()
+
+    override fun createCenterPanel(): JComponent {
+        val builder = FormBuilder.createFormBuilder()
+        params.forEachIndexed { index, param ->
+            builder.addLabeledComponent("$param:", fields[index])
+        }
+        return builder.panel
+    }
 }
 
 private fun installCellClipboardActions(table: JTable) {

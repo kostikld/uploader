@@ -74,6 +74,52 @@ internal fun escapeSingleQuoteShell(value: String): String =
 internal fun quoteForRemoteShell(path: String): String =
      "'" + path.replace("'", "'\\''") + "'"
 
+internal fun isTemplateParamChar(ch: Char): Boolean =
+    ch.isLetterOrDigit() || ch == '_'
+
+private fun matchTemplateParam(command: String, index: Int): Pair<String, Int>? {
+    if (index + 2 >= command.length) return null
+    if (command[index] != '$' || command[index + 1] != '{') return null
+    var end = index + 2
+    while (end < command.length && isTemplateParamChar(command[end])) end += 1
+    if (end >= command.length || command[end] != '}') return null
+    if (end == index + 2) return null
+    return Pair(command.substring(index + 2, end), end + 1)
+}
+
+internal fun actionTemplateParams(command: String): List<String> {
+    val names = mutableListOf<String>()
+    var index = 0
+    while (index < command.length) {
+        val match = matchTemplateParam(command, index)
+        if (match != null) {
+            val (name, next) = match
+            if (!names.contains(name)) names.add(name)
+            index = next
+        } else {
+            index += 1
+        }
+    }
+    return names.toList()
+}
+
+internal fun renderActionCommand(command: String, values: Map<String, String>): String {
+    val builder = StringBuilder()
+    var index = 0
+    while (index < command.length) {
+        val match = matchTemplateParam(command, index)
+        if (match != null) {
+            val (name, next) = match
+            builder.append(values[name] ?: "")
+            index = next
+        } else {
+            builder.append(command[index])
+            index += 1
+        }
+    }
+    return builder.toString()
+}
+
 @Service(Service.Level.APP)
 class SftpUploadService {
     fun upload(
