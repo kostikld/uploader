@@ -32,7 +32,7 @@ class UploadToServerActionGroup : ActionGroup(
     true,
 ) {
     override fun getChildren(event: AnActionEvent?): Array<AnAction> =
-        serverMenuChildren { UploadToProfileAction(it) }
+        serverMenuChildren(event?.project) { UploadToProfileAction(it) }
 
     override fun update(event: AnActionEvent) {
         val files = event.getData(CommonDataKeys.VIRTUAL_FILE_ARRAY)

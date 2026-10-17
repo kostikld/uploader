@@ -5,7 +5,10 @@ import com.intellij.openapi.application.ReadAction
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.ui.DialogWrapper
 import com.intellij.openapi.vfs.LocalFileSystem
+import com.intellij.ui.components.JBTextField
+import com.intellij.util.ui.FormBuilder
 import org.kavo.uploader.MyMessageBundle
 import org.kavo.uploader.UploaderNotifications
 import org.kavo.uploader.changedfiles.ChangedFilesData
@@ -14,12 +17,14 @@ import org.kavo.uploader.changedfiles.UploadRow
 import org.kavo.uploader.changedfiles.buildUploadRows
 import org.kavo.uploader.settings.PasswordStore
 import org.kavo.uploader.settings.SftpSettings
+import org.kavo.uploader.settings.SettingsAccess
 import org.kavo.uploader.upload.*
 import java.io.File
 import java.util.concurrent.Callable
+import javax.swing.JComponent
 
 fun launchUploadChangedFiles(project: Project) {
-    val servers = SftpSettings.getInstance().servers()
+    val servers = SettingsAccess.allServers(project)
     if (servers.isEmpty()) {
         UploaderNotifications.info(project, MyMessageBundle.message("changed.no.servers"))
         return
@@ -29,9 +34,12 @@ fun launchUploadChangedFiles(project: Project) {
         UploaderNotifications.info(project, MyMessageBundle.message("changed.not.git"))
         return
     }
+    val commitDialog = CommitInputDialog(project)
+    if (!commitDialog.showAndGet()) return
+    val commit = commitDialog.commit().takeIf { it.isNotEmpty() }
     object : Task.Backgroundable(project, MyMessageBundle.message("changed.scanning"), true) {
         override fun run(indicator: ProgressIndicator) {
-            scanAndShow(project, workDir, servers)
+            scanAndShow(project, workDir, servers, commit)
         }
     }.queue()
 }
@@ -40,12 +48,21 @@ private fun scanAndShow(
     project: Project,
     workDir: File,
     servers: List<org.kavo.uploader.settings.ServerProfile>,
+    commit: String?,
 ) {
     val basePath = project.basePath ?: return
     val projectRoot = java.nio.file.Paths.get(basePath)
-    val changed = GitScanner.changedFiles(workDir)
+    if (commit != null && !GitScanner.isValidCommit(workDir, commit)) {
+        UploaderNotifications.error(project, MyMessageBundle.message("changed.commit.invalid", commit))
+        return
+    }
+    val changed = if (commit != null) GitScanner.filesInCommit(workDir, commit) else GitScanner.changedFiles(workDir)
     if (changed.isEmpty()) {
-        UploaderNotifications.info(project, MyMessageBundle.message("changed.none"))
+        UploaderNotifications.info(
+            project,
+            if (commit != null) MyMessageBundle.message("changed.commit.none", commit)
+            else MyMessageBundle.message("changed.none"),
+        )
         return
     }
     val classByJava = ReadAction.nonBlocking(
@@ -196,4 +213,20 @@ private fun resolveArchivePath(
 private fun withZipSuffix(path: java.nio.file.Path): java.nio.file.Path {
     val name = File(path.toString()).name
     return if (name.endsWith(".zip", ignoreCase = true)) path else java.nio.file.Paths.get(path.toString() + ".zip")
+}
+
+private class CommitInputDialog(private val project: Project) : DialogWrapper(project, true) {
+    private val commitField = JBTextField()
+
+    init {
+        title = MyMessageBundle.message("changed.commit.dialog")
+        init()
+    }
+
+    fun commit(): String = commitField.text.trim()
+
+    override fun createCenterPanel(): JComponent =
+        FormBuilder.createFormBuilder()
+            .addLabeledComponent(MyMessageBundle.message("changed.commit.prompt"), commitField)
+            .panel
 }

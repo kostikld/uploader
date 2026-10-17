@@ -79,4 +79,35 @@ class GitScannerTest {
         val line = "R  src/Old Name.java -> src/New Name.java"
         assertEquals(listOf("src/New Name.java"), paths(line + "\u0000"))
           }
+
+    private fun commitNames(text: String) = GitScanner.parseNameStatus(text).map { it.toString() }
+
+    @Test
+    fun `commit keeps added and modified files`() {
+        assertEquals(
+            listOf("src/New.java", "src/Modified.java"),
+            commitNames("A\u0000src/New.java\u0000M\u0000src/Modified.java\u0000"),
+        )
+          }
+
+    @Test
+    fun `commit drops deleted files`() {
+        assertEquals(
+            listOf("src/Modified.java"),
+            commitNames("D\u0000src/Gone.java\u0000M\u0000src/Modified.java\u0000"),
+        )
+          }
+
+    @Test
+    fun `commit keeps renames using the new path`() {
+        assertEquals(
+            listOf("src/Renamed.java"),
+            commitNames("R100\u0000src/Old.java\u0000src/Renamed.java\u0000"),
+        )
+          }
+
+    @Test
+    fun `commit handles empty output`() {
+        assertEquals(emptyList<String>(), commitNames(""))
+          }
 }

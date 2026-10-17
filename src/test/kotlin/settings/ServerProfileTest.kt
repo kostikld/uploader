@@ -7,6 +7,11 @@ import org.junit.Test
 
 class ServerProfileTest {
     @Test
+    fun `profiles default to the all projects scope`() {
+        assertEquals(ProfileScope.GLOBAL, ServerProfile(name = "x").scope)
+    }
+
+    @Test
     fun `persistent profile contains no password field`() {
         val fieldNames = ServerProfile::class.java.declaredFields.map { it.name.lowercase() }
 

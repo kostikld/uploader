@@ -15,6 +15,39 @@ object GitScanner {
         return parsePorcelain(output).map { root.resolve(it).normalize() }
      }
 
+    fun isValidCommit(workDir: File, commit: String): Boolean =
+        runGit(workDir, "rev-parse", "--quiet", "--verify", commit) != null
+
+    fun filesInCommit(workDir: File, commit: String): List<Path> {
+        val output = runGit(workDir, "show", "--format=", "--name-status", "-z", commit, "--") ?: return emptyList()
+        val root = workDir.toPath().toAbsolutePath().normalize()
+        return parseNameStatus(output).map { root.resolve(it).normalize() }
+     }
+
+    fun parseNameStatus(output: String): List<Path> {
+        val fields = output.split('\u0000').filter { it.isNotEmpty() }
+        val result = mutableListOf<Path>()
+        var index = 0
+        while (index < fields.size) {
+            val status = fields[index]
+            index += 1
+            if (index >= fields.size) break
+            val flag = status[0]
+            if (flag == 'D') {
+                index += 1
+                continue
+             }
+            if (flag == 'R' || flag == 'C') {
+                if (index + 1 < fields.size) result.add(Paths.get(fields[index + 1]))
+                index += 2
+                continue
+             }
+            if (flag == 'M' || flag == 'A' || flag == 'T') result.add(Paths.get(fields[index]))
+            index += 1
+         }
+        return result
+     }
+
     fun parsePorcelain(output: String): List<Path> {
         val result = mutableListOf<Path>()
         for (record in output.split('\u0000')) {

@@ -47,7 +47,7 @@ abstract class CompareActionGroup(
     true,
 ) {
     override fun getChildren(event: AnActionEvent?): Array<AnAction> =
-        serverMenuChildren { CompareWithProfileAction(it, mode) }
+        serverMenuChildren(event?.project) { CompareWithProfileAction(it, mode) }
 
     override fun update(event: AnActionEvent) {
         val files = event.getData(CommonDataKeys.VIRTUAL_FILE_ARRAY)

@@ -70,4 +70,19 @@ class SftpSettingsFolderTest {
         assertEquals("", settings.servers().find { it.name == "root" }?.folder)
         assertFalse(settings.folders().contains("prod"))
     }
+
+    @Test
+    fun `project scoped store keeps its own servers and folders`() {
+        val projectSettings = SftpProjectSettings()
+        projectSettings.addFolder("prod")
+        projectSettings.save(ServerProfile(name = "alpha", folder = "prod", scope = ProfileScope.PROJECT))
+
+        assertEquals(listOf("prod"), projectSettings.folders())
+        assertEquals(1, projectSettings.servers().size)
+        assertEquals(ProfileScope.PROJECT, projectSettings.servers().get(0).scope)
+
+        projectSettings.renameFolder("prod", "live")
+        assertEquals("live", projectSettings.servers().find { it.name == "alpha" }?.folder)
+        assertEquals(listOf("live"), projectSettings.folders())
+    }
 }
