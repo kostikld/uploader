@@ -11,6 +11,7 @@ import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
+import com.intellij.ui.JBColor
 import com.intellij.ui.PopupHandler
 import com.intellij.ui.MouseDragHelper
 import com.intellij.ui.components.JBPasswordField
@@ -21,6 +22,7 @@ import com.intellij.ui.content.ContentFactory
 import com.intellij.ui.table.JBTable
 import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.ui.FormBuilder
+import com.intellij.util.ui.UIUtil
 import org.kavo.uploader.actions.launchUploadChangedFiles
 import org.kavo.uploader.settings.*
 import org.kavo.uploader.transfer.*
@@ -48,12 +50,16 @@ class MyToolWindowFactory : ToolWindowFactory {
     }
 }
 
+private val serverPanelBackground
+    get() = JBColor.namedColor("ToolWindow.background", UIUtil.getPanelBackground())
+
 private class ServerProfilesPanel(private val project: Project) : JPanel(BorderLayout()) {
     private val treeModel = DefaultTreeModel(ServerNode(MyMessageBundle.message("folder.root")))
     private val serverTree = JTree(treeModel).apply {
         isRootVisible = true
         setShowsRootHandles(true)
         setEditable(false)
+        background = serverPanelBackground
         cellRenderer = ServerNodeRenderer()
         addMouseListener(object : PopupHandler() {
             override fun invokePopup(component: Component, x: Int, y: Int) {
@@ -63,9 +69,14 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
     }
 
     init {
-        add(JBScrollPane(serverTree), BorderLayout.CENTER)
-        add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
-            add(JButton(MyMessageBundle.message("server.add")).apply {
+        background = serverPanelBackground
+        add(JBScrollPane(serverTree).apply {
+            background = serverPanelBackground
+            viewport.background = serverPanelBackground
+        }, BorderLayout.CENTER)
+            add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
+                background = serverPanelBackground
+                add(JButton(MyMessageBundle.message("server.add")).apply {
                 addActionListener { editProfile(null) }
             })
             add(JButton(MyMessageBundle.message("folder.add")).apply {
@@ -474,6 +485,7 @@ private class ServerNodeRenderer : DefaultTreeCellRenderer() {
         row: Int,
         hasFocus: Boolean,
     ): Component {
+        backgroundNonSelectionColor = tree?.background ?: serverPanelBackground
         val component =
             super.getTreeCellRendererComponent(tree, value, selected, expanded, leaf, row, hasFocus) as JLabel
         val node = value as? ServerNode
