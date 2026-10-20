@@ -20,11 +20,6 @@ enum class ServerType {
     LOCAL,
 }
 
-enum class ProfileScope {
-    GLOBAL,
-    PROJECT,
-}
-
 const val LOCAL_PROFILE_ID = "local"
 
 data class ServerAction(
@@ -62,7 +57,6 @@ data class ServerProfile(
     var useRsync: Boolean = false,
     var type: ServerType = ServerType.SFTP,
     var basePath: String = "",
-    var scope: ProfileScope = ProfileScope.GLOBAL,
     var mappings: MutableList<PathMapping> = mutableListOf(),
     var actions: MutableList<ServerAction> = mutableListOf(),
 )

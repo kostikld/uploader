@@ -82,35 +82,29 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
     fun refresh() {
         val selectedKey = selectionKey(serverTree.selectionPath?.lastPathComponent as? ServerNode)
         val root = ServerNode(MyMessageBundle.message("folder.root"), "")
-        val scopeNodes = ProfileScope.values().map { scope ->
-            scope to ServerNode(MyMessageBundle.message(scopeLabelKey(scope)), "", null, scope)
-                .also { root.folderChildren.add(it) }
-        }.toMap()
-        ProfileScope.values().forEach { scope ->
-            SettingsAccess.local(scope, project)
-            SettingsAccess.folders(scope, project).forEach { path ->
-                var parent = scopeNodes.getValue(scope)
-                pathSegments(path).forEach { segment ->
+        SettingsAccess.local(project)
+        SettingsAccess.folders(project).forEach { path ->
+            var parent = root
+            pathSegments(path).forEach { segment ->
+                val node = parent.folderChildren.firstOrNull { it.name == segment }
+                    ?: ServerNode(segment, parent.path.let { if (it.isEmpty()) segment else "$it/$segment" })
+                        .also { parent.folderChildren.add(it) }
+                parent = node
+            }
+        }
+        SettingsAccess.allServers(project).forEach { profile ->
+            val segments = pathSegments(profile.folder)
+            if (segments.isEmpty()) {
+                root.serverChildren.add(ServerNode(profile.name, "", profile))
+            } else {
+                var parent = root
+                segments.forEach { segment ->
                     val node = parent.folderChildren.firstOrNull { it.name == segment }
-                        ?: ServerNode(segment, parent.path.let { if (it.isEmpty()) segment else "$it/$segment" }, null, scope)
+                        ?: ServerNode(segment, parent.path.let { if (it.isEmpty()) segment else "$it/$segment" })
                             .also { parent.folderChildren.add(it) }
                     parent = node
                 }
-            }
-            SettingsAccess.servers(scope, project).forEach { profile ->
-                val segments = pathSegments(profile.folder)
-                if (segments.isEmpty()) {
-                    scopeNodes.getValue(scope).serverChildren.add(ServerNode(profile.name, "", profile, scope))
-                } else {
-                    var parent = scopeNodes.getValue(scope)
-                    segments.forEach { segment ->
-                        val node = parent.folderChildren.firstOrNull { it.name == segment }
-                            ?: ServerNode(segment, parent.path.let { if (it.isEmpty()) segment else "$it/$segment" }, null, scope)
-                                .also { parent.folderChildren.add(it) }
-                        parent = node
-                    }
-                    parent.serverChildren.add(ServerNode(profile.name, parent.path, profile, scope))
-                }
+                parent.serverChildren.add(ServerNode(profile.name, parent.path, profile))
             }
         }
         treeModel.setRoot(root)
@@ -120,22 +114,16 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
         }
     }
 
-    private fun scopeLabelKey(scope: ProfileScope): String =
-        when (scope) {
-            ProfileScope.GLOBAL -> "scope.global"
-            ProfileScope.PROJECT -> "scope.project"
-        }
-
     private fun selectionKey(node: ServerNode?): String? =
         when {
-            node == null || node.scope == null -> null
+            node == null || (node.profile == null && node.path.isEmpty()) -> null
             else -> nodeKey(node)
         }
 
     private fun nodeKey(node: ServerNode): String =
         when (node.profile) {
-            null -> "${node.scope}/${node.path}"
-            else -> "${node.scope}/${node.profile!!.id}"
+            null -> node.path
+            else -> node.profile!!.id
         }
 
     private fun locate(current: ServerNode, key: String): List<ServerNode>? {
@@ -147,7 +135,6 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
     }
 
     private fun addFolder() {
-        val scope = selectedScope()
         val name = Messages.showInputDialog(
             this,
             MyMessageBundle.message("folder.add.prompt"),
@@ -155,16 +142,11 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
             Messages.getQuestionIcon(),
         )?.trim()
         if (name.isNullOrBlank()) return
-        if (SettingsAccess.addFolder(project, scope, name)) {
+        if (SettingsAccess.addFolder(project, name)) {
             refresh()
         } else {
             UploaderNotifications.info(project, MyMessageBundle.message("folder.exists", name))
         }
-    }
-
-    private fun selectedScope(): ProfileScope {
-        val node = serverTree.selectionPath?.lastPathComponent as? ServerNode
-        return node?.scope ?: ProfileScope.GLOBAL
     }
 
     private fun showContextMenu(x: Int, y: Int) {
@@ -198,22 +180,12 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
                 add(JMenuItem(MyMessageBundle.message("folder.ungrouped")).apply {
                     addActionListener { moveProfileToFolder(profile, "") }
                 })
-                SettingsAccess.folders(profile.scope, project).forEach { folder ->
+                SettingsAccess.folders(project).forEach { folder ->
                     add(JMenuItem(folder).apply {
                         addActionListener { moveProfileToFolder(profile, folder) }
                     })
                 }
             })
-            addSeparator()
-            if (profile.scope == ProfileScope.GLOBAL) {
-                add(JMenuItem(MyMessageBundle.message("server.scope.to_project")).apply {
-                    addActionListener { changeScope(profile, ProfileScope.PROJECT) }
-                })
-            } else {
-                add(JMenuItem(MyMessageBundle.message("server.scope.to_global")).apply {
-                    addActionListener { changeScope(profile, ProfileScope.GLOBAL) }
-                })
-            }
             if (!isLocal) {
                 addSeparator()
                 add(JMenu(MyMessageBundle.message("server.context.actions")).apply {
@@ -230,19 +202,18 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
 
     private fun showFolderMenu(node: ServerNode, x: Int, y: Int) {
         val folder = node.path
-        val scope = node.scope ?: ProfileScope.GLOBAL
         JPopupMenu().apply {
             add(JMenuItem(MyMessageBundle.message("folder.rename")).apply {
-                addActionListener { renameFolder(folder, scope) }
+                addActionListener { renameFolder(folder) }
             })
             add(JMenuItem(MyMessageBundle.message("folder.remove")).apply {
-                addActionListener { deleteFolder(folder, scope) }
+                addActionListener { deleteFolder(folder) }
             })
             show(serverTree, x, y)
         }
     }
 
-    private fun renameFolder(folder: String, scope: ProfileScope) {
+    private fun renameFolder(folder: String) {
         val name = Messages.showInputDialog(
             this,
             MyMessageBundle.message("folder.rename.prompt", folder),
@@ -250,31 +221,22 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
             Messages.getQuestionIcon(),
         )?.trim()
         if (name.isNullOrBlank() || name == folder) return
-        if (SettingsAccess.folders(scope, project).contains(name)) {
+        if (SettingsAccess.folders(project).contains(name)) {
             UploaderNotifications.info(project, MyMessageBundle.message("folder.exists", name))
             return
         }
-        SettingsAccess.renameFolder(project, scope, folder, name)
+        SettingsAccess.renameFolder(project, folder, name)
         refresh()
     }
 
-    fun moveProfileToFolder(profile: ServerProfile, folder: String, scope: ProfileScope? = null) {
-        if (scope != null && scope != profile.scope) SettingsAccess.remove(project, profile.id)
+    fun moveProfileToFolder(profile: ServerProfile, folder: String) {
         profile.folder = folder
-        scope?.let { profile.scope = it }
         SettingsAccess.save(project, profile)
         refresh()
     }
 
-    private fun changeScope(profile: ServerProfile, scope: ProfileScope) {
-        SettingsAccess.remove(project, profile.id)
-        profile.scope = scope
-        SettingsAccess.save(project, profile)
-        refresh()
-    }
-
-    private fun deleteFolder(folder: String, scope: ProfileScope) {
-        SettingsAccess.deleteFolder(project, scope, folder)
+    private fun deleteFolder(folder: String) {
+        SettingsAccess.deleteFolder(project, folder)
         refresh()
     }
 
@@ -462,7 +424,7 @@ private class DragDropTracker(
         if (profile != null) {
             nodeAt(event.point)?.let { target ->
                 if (target.profile == null) {
-                    panel.moveProfileToFolder(profile, target.path, target.scope)
+                    panel.moveProfileToFolder(profile, target.path)
                 }
             }
         }
@@ -483,7 +445,6 @@ private class ServerNode(
     val name: String,
     val path: String = name,
     val profile: ServerProfile? = null,
-    val scope: ProfileScope? = null,
 ) : DefaultMutableTreeNode() {
     val folderChildren: MutableList<ServerNode> = mutableListOf()
     val serverChildren: MutableList<ServerNode> = mutableListOf()
@@ -540,9 +501,6 @@ private class ServerProfileDialog(private val project: Project, private val exis
     private val passwordField = JBPasswordField()
     private val useRsyncCheckbox = JCheckBox(MyMessageBundle.message("server.useRsync")).apply {
         isSelected = existing?.useRsync ?: SftpSettings.getInstance().newServerUseRsync
-    }
-    private val scopeCheckbox = JCheckBox(MyMessageBundle.message("server.scope.project")).apply {
-        isSelected = existing?.scope == ProfileScope.PROJECT
     }
     private val mappingsModel = object : DefaultTableModel(arrayOf("Project-relative path", "Remote directory"), 0) {
         override fun isCellEditable(row: Int, column: Int) = true
@@ -648,9 +606,6 @@ private class ServerProfileDialog(private val project: Project, private val exis
         val builder = FormBuilder.createFormBuilder()
             .addLabeledComponent(MyMessageBundle.message("server.name"), nameField)
             .addLabeledComponent(MyMessageBundle.message("server.folder"), folderField)
-        if (isNewProfile) {
-            builder.addComponent(scopeCheckbox)
-        }
         if (isLocal) {
             builder.addLabeledComponent(MyMessageBundle.message("server.local.basePath"), basePathField)
         }
@@ -758,11 +713,6 @@ private class ServerProfileDialog(private val project: Project, private val exis
             useRsync = if (isLocal) false else useRsyncCheckbox.isSelected,
             type = if (isLocal) ServerType.LOCAL else ServerType.SFTP,
             basePath = if (isLocal) basePathField.text.trim() else "",
-            scope = if (isNewProfile) {
-                if (scopeCheckbox.isSelected) ProfileScope.PROJECT else ProfileScope.GLOBAL
-            } else {
-                existing!!.scope
-            },
             mappings = mappings().toMutableList(),
             actions = if (isLocal) mutableListOf() else actions().toMutableList(),
         )
