@@ -11,6 +11,7 @@ import com.intellij.openapi.ui.Messages
 import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
+import com.intellij.ui.JBColor
 import com.intellij.ui.PopupHandler
 import com.intellij.ui.MouseDragHelper
 import com.intellij.ui.components.JBPasswordField
@@ -21,6 +22,7 @@ import com.intellij.ui.content.ContentFactory
 import com.intellij.ui.table.JBTable
 import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.util.ui.FormBuilder
+import com.intellij.util.ui.UIUtil
 import org.kavo.uploader.actions.launchUploadChangedFiles
 import org.kavo.uploader.settings.*
 import org.kavo.uploader.transfer.*
@@ -30,6 +32,7 @@ import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
 import java.awt.event.ActionEvent
 import java.awt.event.KeyEvent
+import java.awt.event.*
 import java.util.*
 import javax.swing.*
 import javax.swing.table.DefaultTableModel
@@ -48,25 +51,40 @@ class MyToolWindowFactory : ToolWindowFactory {
     }
 }
 
+private val serverPanelBackground
+    get() = JBColor.namedColor("ToolWindow.background", UIUtil.getPanelBackground())
+
 private class ServerProfilesPanel(private val project: Project) : JPanel(BorderLayout()) {
-    private val settings = SftpSettings.getInstance()
     private val treeModel = DefaultTreeModel(ServerNode(MyMessageBundle.message("folder.root")))
     private val serverTree = JTree(treeModel).apply {
         isRootVisible = true
         setShowsRootHandles(true)
         setEditable(false)
+        background = serverPanelBackground
         cellRenderer = ServerNodeRenderer()
         addMouseListener(object : PopupHandler() {
             override fun invokePopup(component: Component, x: Int, y: Int) {
                 showContextMenu(x, y)
             }
         })
+        addKeyListener(object : java.awt.event.KeyAdapter() {
+            override fun keyPressed(event: java.awt.event.KeyEvent) {
+                if (event.keyCode == java.awt.event.KeyEvent.VK_DELETE || event.keyCode == java.awt.event.KeyEvent.VK_BACK_SPACE) {
+                    deleteSelected()
+                }
+            }
+        })
     }
 
     init {
-        add(JBScrollPane(serverTree), BorderLayout.CENTER)
-        add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
-            add(JButton(MyMessageBundle.message("server.add")).apply {
+        background = serverPanelBackground
+        add(JBScrollPane(serverTree).apply {
+            background = serverPanelBackground
+            viewport.background = serverPanelBackground
+        }, BorderLayout.CENTER)
+            add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
+                background = serverPanelBackground
+                add(JButton(MyMessageBundle.message("server.add")).apply {
                 addActionListener { editProfile(null) }
             })
             add(JButton(MyMessageBundle.message("folder.add")).apply {
@@ -81,19 +99,19 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
     }
 
     fun refresh() {
-        settings.local()
         val selectedKey = selectionKey(serverTree.selectionPath?.lastPathComponent as? ServerNode)
         val root = ServerNode(MyMessageBundle.message("folder.root"), "")
-        settings.folders().forEach { path ->
+        SettingsAccess.local(project)
+        SettingsAccess.folders(project).forEach { path ->
             var parent = root
-            path.split('/').forEach { segment ->
+            pathSegments(path).forEach { segment ->
                 val node = parent.folderChildren.firstOrNull { it.name == segment }
                     ?: ServerNode(segment, parent.path.let { if (it.isEmpty()) segment else "$it/$segment" })
                         .also { parent.folderChildren.add(it) }
                 parent = node
             }
         }
-        settings.servers().forEach { profile ->
+        SettingsAccess.allServers(project).forEach { profile ->
             val segments = pathSegments(profile.folder)
             if (segments.isEmpty()) {
                 root.serverChildren.add(ServerNode(profile.name, "", profile))
@@ -115,17 +133,39 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
         }
     }
 
+    private fun deleteSelected() {
+        val node = serverTree.selectionPath?.lastPathComponent as? ServerNode ?: return
+        val profile = node.profile
+        if (profile != null) {
+            if (profile.type == ServerType.LOCAL) {
+                UploaderNotifications.error(
+                    project,
+                    MyMessageBundle.message("server.local.delete.unsupported", profile.name),
+                )
+            } else {
+                removeProfile(profile)
+            }
+            return
+        }
+        if (node.path.isEmpty()) return
+        if (!FolderDeleteDialog(project, node.path).showAndGet()) return
+        deleteFolder(node.path)
+    }
+
     private fun selectionKey(node: ServerNode?): String? =
         when {
-            node == null || node.name == MyMessageBundle.message("folder.root") -> null
-            node.profile == null -> node.path
+            node == null || (node.profile == null && node.path.isEmpty()) -> null
+            else -> nodeKey(node)
+        }
+
+    private fun nodeKey(node: ServerNode): String =
+        when (node.profile) {
+            null -> node.path
             else -> node.profile!!.id
         }
 
     private fun locate(current: ServerNode, key: String): List<ServerNode>? {
-        val match = current.profile?.id == key ||
-                (current.profile == null && key == current.path)
-        if (match) return listOf(current)
+        if (nodeKey(current) == key) return listOf(current)
         (current.folderChildren + current.serverChildren).forEach { child ->
             locate(child, key)?.let { return listOf(current) + it }
         }
@@ -140,7 +180,7 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
             Messages.getQuestionIcon(),
         )?.trim()
         if (name.isNullOrBlank()) return
-        if (settings.addFolder(name)) {
+        if (SettingsAccess.addFolder(project, name)) {
             refresh()
         } else {
             UploaderNotifications.info(project, MyMessageBundle.message("folder.exists", name))
@@ -170,20 +210,24 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
                     addActionListener { testConnection(profile) }
                 })
             }
-            add(JMenuItem(MyMessageBundle.message("server.remove")).apply {
-                addActionListener { removeProfile(profile) }
-            })
-            addSeparator()
-            add(JMenu(MyMessageBundle.message("server.move")).apply {
-                add(JMenuItem(MyMessageBundle.message("folder.ungrouped")).apply {
-                    addActionListener { moveProfileToFolder(profile, "") }
+            if (!isLocal) {
+                add(JMenuItem(MyMessageBundle.message("server.remove")).apply {
+                    addActionListener { removeProfile(profile) }
                 })
-                settings.folders().forEach { folder ->
-                    add(JMenuItem(folder).apply {
-                        addActionListener { moveProfileToFolder(profile, folder) }
+            }
+            if (!isLocal) {
+                addSeparator()
+                add(JMenu(MyMessageBundle.message("server.move")).apply {
+                    add(JMenuItem(MyMessageBundle.message("folder.ungrouped")).apply {
+                        addActionListener { moveProfileToFolder(profile, "") }
                     })
-                }
-            })
+                    SettingsAccess.folders(project).forEach { folder ->
+                        add(JMenuItem(folder).apply {
+                            addActionListener { moveProfileToFolder(profile, folder) }
+                        })
+                    }
+                })
+            }
             if (!isLocal) {
                 addSeparator()
                 add(JMenu(MyMessageBundle.message("server.context.actions")).apply {
@@ -219,22 +263,37 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
             Messages.getQuestionIcon(),
         )?.trim()
         if (name.isNullOrBlank() || name == folder) return
-        if (settings.folders().contains(name)) {
+        if (SettingsAccess.folders(project).contains(name)) {
             UploaderNotifications.info(project, MyMessageBundle.message("folder.exists", name))
             return
         }
-        settings.renameFolder(folder, name)
+        SettingsAccess.renameFolder(project, folder, name)
         refresh()
     }
 
     fun moveProfileToFolder(profile: ServerProfile, folder: String) {
+        if (profile.type == ServerType.LOCAL && folder.isNotEmpty()) {
+            UploaderNotifications.error(
+                project,
+                MyMessageBundle.message("server.local.move.unsupported", profile.name),
+            )
+            return
+        }
         profile.folder = folder
-        settings.save(profile)
+        SettingsAccess.save(project, profile)
         refresh()
     }
 
     private fun deleteFolder(folder: String) {
-        settings.deleteFolder(folder)
+        val prefix = "$folder/"
+        val removedProfiles = SettingsAccess.allServers(project)
+            .filter { it.type != ServerType.LOCAL && (it.folder == folder || it.folder.startsWith(prefix)) }
+        SettingsAccess.deleteFolder(project, folder)
+        removedProfiles.forEach { profile ->
+            AppExecutorUtil.getAppExecutorService().execute {
+                PasswordStore.remove(profile.id)
+            }
+        }
         refresh()
     }
 
@@ -333,7 +392,14 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
     }
 
     private fun removeProfile(profile: ServerProfile) {
-        settings.remove(profile.id)
+        if (profile.type == ServerType.LOCAL) {
+            UploaderNotifications.error(
+                project,
+                MyMessageBundle.message("server.local.delete.unsupported", profile.name),
+            )
+            return
+        }
+        SettingsAccess.remove(project, profile.id)
         refresh()
         AppExecutorUtil.getAppExecutorService().execute {
             PasswordStore.remove(profile.id)
@@ -345,7 +411,8 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
         if (!dialog.showAndGet()) return
         val profile = dialog.profile()
         val password = dialog.password()
-        settings.save(profile)
+        SettingsAccess.remove(project, profile.id)
+        SettingsAccess.save(project, profile)
         refresh()
         if (password != null) {
             AppExecutorUtil.getAppExecutorService().execute {
@@ -406,7 +473,8 @@ private class DragDropTracker(
         dragged != null
 
     override fun processMousePressed(event: java.awt.event.MouseEvent) {
-        dragged = if (event.button == 1) nodeAt(event.point)?.profile else null
+        val profile = nodeAt(event.point)?.profile
+        dragged = if (event.button == 1 && profile?.type != ServerType.LOCAL) profile else null
     }
 
     override fun canFinishDragging(event: java.awt.event.MouseEvent): Boolean {
@@ -461,6 +529,18 @@ private class ServerNode(
         }
 }
 
+private class FolderDeleteDialog(private val project: Project, private val folder: String) : DialogWrapper(project, true) {
+    init {
+        title = MyMessageBundle.message("folder.remove")
+        init()
+    }
+
+    override fun createCenterPanel(): JComponent =
+        JPanel(BorderLayout()).apply {
+            add(JLabel(MyMessageBundle.message("folder.delete.confirm.message", folder)), BorderLayout.CENTER)
+        }
+}
+
 private class ServerNodeRenderer : DefaultTreeCellRenderer() {
     override fun getTreeCellRendererComponent(
         tree: JTree?,
@@ -471,6 +551,7 @@ private class ServerNodeRenderer : DefaultTreeCellRenderer() {
         row: Int,
         hasFocus: Boolean,
     ): Component {
+        backgroundNonSelectionColor = tree?.background ?: serverPanelBackground
         val component =
             super.getTreeCellRendererComponent(tree, value, selected, expanded, leaf, row, hasFocus) as JLabel
         val node = value as? ServerNode
@@ -484,7 +565,7 @@ private class ServerNodeRenderer : DefaultTreeCellRenderer() {
     }
 }
 
-private class ServerProfileDialog(private val project: Project, existing: ServerProfile?) :
+private class ServerProfileDialog(private val project: Project, private val existing: ServerProfile?) :
     DialogWrapper(project, true) {
     private val isNewProfile = existing == null
     private val isLocal = existing?.type == ServerType.LOCAL
@@ -602,7 +683,9 @@ private class ServerProfileDialog(private val project: Project, existing: Server
 
         val builder = FormBuilder.createFormBuilder()
             .addLabeledComponent(MyMessageBundle.message("server.name"), nameField)
-            .addLabeledComponent(MyMessageBundle.message("server.folder"), folderField)
+        if (!isLocal) {
+            builder.addLabeledComponent(MyMessageBundle.message("server.folder"), folderField)
+        }
         if (isLocal) {
             builder.addLabeledComponent(MyMessageBundle.message("server.local.basePath"), basePathField)
         }
@@ -703,7 +786,7 @@ private class ServerProfileDialog(private val project: Project, existing: Server
         return ServerProfile(
             id = profileId,
             name = nameField.text.trim(),
-            folder = folderField.text.trim(),
+            folder = if (isLocal) "" else folderField.text.trim(),
             host = if (isLocal) "" else hostField.text.trim(),
             port = portField.value as Int,
             username = if (isLocal) "" else usernameField.text.trim(),

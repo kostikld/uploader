@@ -45,7 +45,7 @@ Choose a configured server profile from the submenu. Required remote directories
 
 ### Upload changed files
 
-In the **SFTP Uploader** tool window, select **Upload changed files**. The plugin finds changed files in the current Git working tree, lets you choose a server and files, then uploads the selected items.
+In the **SFTP Uploader** tool window, select **Upload changed files**. The plugin prompts for a commit id: enter one to list the files changed in that commit, or leave it blank to use the current Git working tree. It then lets you choose a server and files, and uploads the selected items.
 
 Files that do not match a path mapping are disabled. When compiled Java uploads are enabled, Java files without a compiled class are also disabled.
 

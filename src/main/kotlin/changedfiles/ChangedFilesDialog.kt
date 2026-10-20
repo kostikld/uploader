@@ -39,12 +39,18 @@ class ChangedFilesDialog(
 
     private val serverButton = JButton()
     private val zipCheckbox = JCheckBox(MyMessageBundle.message("changed.zip"))
+    private val zipLabel = JBLabel(MyMessageBundle.message("changed.zip"))
     private val archiveNameField = com.intellij.ui.components.JBTextField()
+    private val archiveLabel = JBLabel(MyMessageBundle.message("changed.zip.name"))
     private val north = JPanel(FlowLayout(FlowLayout.LEFT))
 
     init {
         title = MyMessageBundle.message("changed.title")
         archiveNameField.isEnabled = false
+        zipLabel.setVisible(false)
+        zipCheckbox.setVisible(false)
+        archiveLabel.setVisible(false)
+        archiveNameField.setVisible(false)
         zipCheckbox.addActionListener {
             archiveNameField.isEnabled =
                 server?.type == org.kavo.uploader.settings.ServerType.LOCAL && zipCheckbox.isSelected
@@ -77,6 +83,12 @@ class ChangedFilesDialog(
                 .createPopup()
                 .show(RelativePoint.getSouthOf(serverButton))
         }
+        north.add(JBLabel(MyMessageBundle.message("changed.server")))
+        north.add(serverButton)
+        north.add(zipLabel)
+        north.add(zipCheckbox)
+        north.add(archiveLabel)
+        north.add(archiveNameField)
         applyState()
 
         val outer = JPanel(BorderLayout())
@@ -103,21 +115,12 @@ class ChangedFilesDialog(
 
     fun archiveName(): String = archiveNameField.text.trim()
 
-    private fun configureNorth() {
-        north.removeAll()
-        north.add(JBLabel(MyMessageBundle.message("changed.server")))
-        north.add(serverButton)
-        if (server?.type == org.kavo.uploader.settings.ServerType.LOCAL) {
-            north.add(JBLabel(MyMessageBundle.message("changed.zip")))
-            north.add(zipCheckbox)
-            north.add(JBLabel(MyMessageBundle.message("changed.zip.name")))
-            north.add(archiveNameField)
-        }
-    }
-
     private fun applyState() {
-        configureNorth()
         val local = server?.type == org.kavo.uploader.settings.ServerType.LOCAL
+        zipLabel.setVisible(local)
+        zipCheckbox.setVisible(local)
+        archiveLabel.setVisible(local)
+        archiveNameField.setVisible(local)
         zipCheckbox.isEnabled = local
         zipCheckbox.isSelected = local && zipCheckbox.isSelected
         archiveNameField.isEnabled = local && zipCheckbox.isSelected

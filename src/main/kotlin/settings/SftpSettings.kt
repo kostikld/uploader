@@ -84,7 +84,10 @@ class SftpSettings : PersistentStateComponent<SftpSettingsState> {
 
     fun local(): ServerProfile {
         val index = state.servers.indexOfFirst { it.type == ServerType.LOCAL }
-        if (index >= 0) return state.servers[index]
+        if (index >= 0) {
+            state.servers[index].folder = ""
+            return state.servers[index]
+        }
         val profile = ServerProfile(
             id = LOCAL_PROFILE_ID,
             name = "Local",
@@ -133,12 +136,12 @@ class SftpSettings : PersistentStateComponent<SftpSettingsState> {
     fun deleteFolder(name: String) {
         val prefix = "$name/"
         state.folders.removeIf { it == name || it.startsWith(prefix) }
-        state.servers.forEach { profile ->
-            when {
-                profile.folder == name -> profile.folder = ""
-                profile.folder.startsWith(prefix) -> profile.folder =
-                    profile.folder.removePrefix(prefix)
+        state.servers.removeIf { profile ->
+            val inside = profile.folder == name || profile.folder.startsWith(prefix)
+            if (inside && profile.type == ServerType.LOCAL) {
+                profile.folder = ""
             }
+            inside && profile.type != ServerType.LOCAL
         }
     }
 
@@ -161,6 +164,9 @@ class SftpSettings : PersistentStateComponent<SftpSettingsState> {
           }
 
     fun save(profile: ServerProfile) {
+        if (profile.type == ServerType.LOCAL) {
+            profile.folder = ""
+        }
         val index = state.servers.indexOfFirst { it.id == profile.id }
         if (index >= 0) {
             state.servers[index] = profile
