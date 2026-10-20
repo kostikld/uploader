@@ -2,6 +2,11 @@
 
 # Uploader Changelog
 
+## 1.0.11 - 2026-10-20
+
+- "Upload changed files" can list the files of a specific commit: enter a commit id, or leave it blank for current working-tree changes
+- Fix server list background coloring in some themes
+
 ## 1.0.10 - 2026-10-08
 
 - Config for a local directory
