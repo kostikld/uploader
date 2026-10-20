@@ -56,7 +56,7 @@ class SftpSettingsFolderTest {
     }
 
     @Test
-    fun `delete folder ungroups children and prunes subfolders`() {
+    fun `delete folder removes children and prunes subfolders`() {
         val settings = SftpSettings()
         settings.addFolder("prod/dev")
         settings.save(profile("alpha", "prod"))
@@ -65,10 +65,11 @@ class SftpSettingsFolderTest {
 
         settings.deleteFolder("prod")
 
-        assertEquals("", settings.servers().find { it.name == "alpha" }?.folder)
-        assertEquals("dev", settings.servers().find { it.name == "beta" }?.folder)
+        assertTrue(settings.servers().none { it.name == "alpha" })
+        assertTrue(settings.servers().none { it.name == "beta" })
         assertEquals("", settings.servers().find { it.name == "root" }?.folder)
         assertFalse(settings.folders().contains("prod"))
+        assertFalse(settings.folders().contains("prod/dev"))
     }
 
 }
