@@ -26,6 +26,7 @@ import com.intellij.util.ui.UIUtil
 import org.kavo.uploader.actions.launchUploadChangedFiles
 import org.kavo.uploader.settings.*
 import org.kavo.uploader.transfer.*
+import org.kavo.uploader.ui.*
 import org.kavo.uploader.upload.*
 import java.awt.*
 import java.awt.datatransfer.DataFlavor
@@ -74,7 +75,10 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
                 }
             }
         })
+        installCloneShortcut(this) { cloneSelected() }
     }
+
+    private var menuPanel = buildMenuPanel()
 
     init {
         background = serverPanelBackground
@@ -82,23 +86,31 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
             background = serverPanelBackground
             viewport.background = serverPanelBackground
         }, BorderLayout.CENTER)
-            add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
-                background = serverPanelBackground
-                add(JButton(MyMessageBundle.message("server.add")).apply {
-                addActionListener { editProfile(null) }
-            })
-            add(JButton(MyMessageBundle.message("folder.add")).apply {
-                addActionListener { addFolder() }
-            })
-            add(JButton(MyMessageBundle.message("server.upload.git_changed")).apply {
-                addActionListener { launchUploadChangedFiles(project) }
-            })
-        }, BorderLayout.SOUTH)
+        add(menuPanel, BorderLayout.SOUTH)
         serverTree.addMouseListener(DragDropTracker(serverTree, this, project))
         refresh()
     }
 
+    private fun buildMenuPanel(): MenuButtonsPanel = MenuButtonsPanel(SettingsAccess.wrapMenuButtons(project)).apply {
+        background = serverPanelBackground
+        addMenuButton(JButton(MyMessageBundle.message("server.add")).apply {
+            addActionListener { editProfile(null) }
+        })
+        if (SettingsAccess.showMenuAddFolderButton(project)) {
+            addMenuButton(JButton(MyMessageBundle.message("folder.add")).apply {
+                addActionListener { addFolder() }
+            })
+        }
+        addMenuButton(JButton(MyMessageBundle.message("server.upload.git_changed")).apply {
+            addActionListener { launchUploadChangedFiles(project) }
+        })
+    }
+
     fun refresh() {
+        remove(menuPanel)
+        menuPanel = buildMenuPanel()
+        add(menuPanel, BorderLayout.SOUTH)
+        revalidate()
         val selectedKey = selectionKey(serverTree.selectionPath?.lastPathComponent as? ServerNode)
         val root = ServerNode(MyMessageBundle.message("folder.root"), "")
         SettingsAccess.local(project)
@@ -150,6 +162,48 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
         if (node.path.isEmpty()) return
         if (!FolderDeleteDialog(project, node.path).showAndGet()) return
         deleteFolder(node.path)
+    }
+
+    private fun cloneSelected() {
+        val profile = (serverTree.selectionPath?.lastPathComponent as? ServerNode)?.profile ?: return
+        if (profile.type == ServerType.LOCAL) {
+            UploaderNotifications.error(
+                project,
+                MyMessageBundle.message("server.local.clone.unsupported", profile.name),
+            )
+            return
+        }
+        val clone = cloneProfile(profile, SettingsAccess.allServers(project).map { it.name })
+        SettingsAccess.save(project, clone)
+        refresh()
+        selectNode(clone.id)
+        UploaderNotifications.info(
+            project,
+            MyMessageBundle.message("server.cloned", profile.name, clone.name),
+        )
+        AppExecutorUtil.getAppExecutorService().execute {
+            val password = PasswordStore.get(profile.id)
+            if (password != null) {
+                try {
+                    PasswordStore.set(clone.id, clone.username, password)
+                } catch (error: Exception) {
+                    UploaderNotifications.error(
+                        project,
+                        MyMessageBundle.message(
+                            "password.save.failed",
+                            clone.name,
+                            error.message ?: error.javaClass.simpleName,
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    private fun selectNode(key: String) {
+        (treeModel.root as? ServerNode)?.let { root ->
+            locate(root, key)?.let { serverTree.setSelectionPath(TreePath(it)) }
+        }
     }
 
     private fun selectionKey(node: ServerNode?): String? =
@@ -580,11 +634,27 @@ private class ServerProfileDialog(private val project: Project, private val exis
     private val useRsyncCheckbox = JCheckBox(MyMessageBundle.message("server.useRsync")).apply {
         isSelected = existing?.useRsync ?: SftpSettings.getInstance().newServerUseRsync
     }
+    private val fnPatternsModel = object : DefaultTableModel(
+        arrayOf(
+            MyMessageBundle.message("fnmatch.pattern"),
+            MyMessageBundle.message("fnmatch.remote"),
+        ),
+        0,
+    ) {
+        override fun isCellEditable(row: Int, column: Int) = true
+    }
+    private val fnPatternsTable = JBTable(fnPatternsModel).apply {
+        installTableShortcuts(this, fnPatternsModel) { rows ->
+            rows.map { row -> mappingCells(fnPatternsModel, row) }
+        }
+    }
     private val mappingsModel = object : DefaultTableModel(arrayOf("Project-relative path", "Remote directory"), 0) {
         override fun isCellEditable(row: Int, column: Int) = true
     }
     private val mappingsTable = JBTable(mappingsModel).apply {
-        installCellClipboardActions(this)
+        installTableShortcuts(this, mappingsModel) { rows ->
+            rows.map { row -> mappingCells(mappingsModel, row) }
+        }
     }
     private val actionsModel = object : DefaultTableModel(
         arrayOf(
@@ -598,15 +668,20 @@ private class ServerProfileDialog(private val project: Project, private val exis
     }
     private val actionsTable = JBTable(actionsModel).apply {
         columnModel.removeColumn(columnModel.getColumn(2))
-        installCellClipboardActions(this)
+        installTableShortcuts(this, actionsModel) { rows ->
+            val takenNames = actions().map { it.name }.toMutableSet()
+            rows.map { row -> actionCells(cloneAction(actionAt(row), takenNames)) }
+        }
     }
 
     init {
         title =
             if (existing == null) MyMessageBundle.message("server.dialog.add") else MyMessageBundle.message("server.dialog.edit")
         if (existing == null) {
+            fnPatternsModel.addRow(arrayOf("", ""))
             mappingsModel.addRow(arrayOf("", ""))
         } else {
+            existing.fnPatterns.forEach { fnPatternsModel.addRow(arrayOf(it.localPath, it.remotePath)) }
             existing.mappings.forEach { mappingsModel.addRow(arrayOf(it.localPath, it.remotePath)) }
             existing.actions.forEach { actionsModel.addRow(arrayOf(it.name, it.command, it.id)) }
         }
@@ -614,6 +689,37 @@ private class ServerProfileDialog(private val project: Project, private val exis
     }
 
     override fun createCenterPanel(): JComponent {
+        val fnPanel = JPanel(BorderLayout()).apply {
+            add(JBScrollPane(fnPatternsTable), BorderLayout.CENTER)
+            add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
+                add(JButton(MyMessageBundle.message("fnmatch.add")).apply {
+                    addActionListener { fnPatternsModel.addRow(arrayOf("", "")) }
+                })
+                add(JButton(MyMessageBundle.message("fnmatch.remove")).apply {
+                    addActionListener {
+                        fnPatternsTable.selectedRows.sortedDescending().forEach(fnPatternsModel::removeRow)
+                    }
+                })
+                add(JButton(MyMessageBundle.message("fnmatch.copy")).apply {
+                    addActionListener {
+                        stopEditing()
+                        val patterns = (0 until fnPatternsModel.rowCount).map { row ->
+                            PathMapping(
+                                localPath = fnPatternsModel.getValueAt(row, 0)?.toString().orEmpty().trim(),
+                                remotePath = fnPatternsModel.getValueAt(row, 1)?.toString().orEmpty().trim(),
+                            )
+                        }.filterNot { it.localPath.isBlank() && it.remotePath.isBlank() }
+                        val text = ProfileTransfer.encodeMappings(patterns)
+                        copyToClipboard(text)
+                        UploaderNotifications.info(project, MyMessageBundle.message("fnmatch.copied", patterns.size))
+                    }
+                })
+                add(JButton(MyMessageBundle.message("fnmatch.import")).apply {
+                    addActionListener { importFnPatterns() }
+                })
+            }, BorderLayout.SOUTH)
+        }
+        fnPanel.preferredSize = Dimension(680, 140)
         val mappingPanel = JPanel(BorderLayout()).apply {
             add(JBScrollPane(mappingsTable), BorderLayout.CENTER)
             add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
@@ -702,6 +808,7 @@ private class ServerProfileDialog(private val project: Project, private val exis
                 .addSeparator()
         }
         builder
+            .addLabeledComponentFillVertically(MyMessageBundle.message("server.fnPatterns"), fnPanel)
             .addLabeledComponentFillVertically(MyMessageBundle.message("server.mappings"), mappingPanel)
         if (!isLocal) {
             builder.addLabeledComponentFillVertically(MyMessageBundle.message("server.actions"), actionsPanel)
@@ -750,6 +857,29 @@ private class ServerProfileDialog(private val project: Project, private val exis
             }
         }
 
+        val patterns = mutableSetOf<String>()
+        fnPatterns().forEach { entry ->
+            val pattern = PathMappingResolver.normalizeLocal(entry.localPath)
+            if (pattern.split('/').any { it == ".." }) {
+                return ValidationInfo(MyMessageBundle.message("validation.local.path"), fnPatternsTable)
+            }
+            if (pattern.isEmpty()) {
+                return ValidationInfo(MyMessageBundle.message("validation.fnmatch.blank"), fnPatternsTable)
+            }
+            if (!patterns.add(pattern)) {
+                return ValidationInfo(MyMessageBundle.message("validation.fnmatch.duplicate", pattern), fnPatternsTable)
+            }
+            if (!isLocal) {
+                try {
+                    if (!PathMappingResolver.normalizeRemote(entry.remotePath).startsWith("/")) {
+                        return ValidationInfo(MyMessageBundle.message("validation.remote.absolute"), fnPatternsTable)
+                    }
+                } catch (_: IllegalArgumentException) {
+                    return ValidationInfo(MyMessageBundle.message("validation.remote.path"), fnPatternsTable)
+                }
+            }
+        }
+
         if (isLocal) {
             if (basePathField.text.trim().split('/').any { it == ".." }) {
                 return ValidationInfo(MyMessageBundle.message("validation.local.path"), basePathField)
@@ -794,6 +924,7 @@ private class ServerProfileDialog(private val project: Project, private val exis
             type = if (isLocal) ServerType.LOCAL else ServerType.SFTP,
             basePath = if (isLocal) basePathField.text.trim() else "",
             mappings = mappings().toMutableList(),
+            fnPatterns = fnPatterns().toMutableList(),
             actions = if (isLocal) mutableListOf() else actions().toMutableList(),
         )
     }
@@ -816,6 +947,18 @@ private class ServerProfileDialog(private val project: Project, private val exis
         UploaderNotifications.info(project, MyMessageBundle.message("mapping.imported", mappings.size))
     }
 
+    private fun importFnPatterns() {
+        val dialog = ImportLinesDialog(
+            project,
+            MyMessageBundle.message("fnmatch.import"),
+            MyMessageBundle.message("import.fnmatch.hint")
+        )
+        if (!dialog.showAndGet()) return
+        val patterns = ProfileTransfer.decodeMappings(dialog.text())
+        patterns.forEach { fnPatternsModel.addRow(arrayOf(it.localPath, it.remotePath)) }
+        UploaderNotifications.info(project, MyMessageBundle.message("fnmatch.imported", patterns.size))
+    }
+
     private fun importActions() {
         val dialog = ImportLinesDialog(
             project,
@@ -829,23 +972,40 @@ private class ServerProfileDialog(private val project: Project, private val exis
     }
 
     private fun mappings(): List<PathMapping> =
-        (0 until mappingsModel.rowCount).map { row ->
-            PathMapping(
-                localPath = PathMappingResolver.normalizeLocal(mappingsModel.getValueAt(row, 0)?.toString().orEmpty()),
-                remotePath = mappingsModel.getValueAt(row, 1)?.toString().orEmpty().trim(),
-            )
-        }.filterNot { it.localPath.isBlank() && it.remotePath.isBlank() }
+        (0 until mappingsModel.rowCount).map { row -> pathMapping(mappingsModel, row) }
+            .filterNot { it.localPath.isBlank() && it.remotePath.isBlank() }
+
+    private fun fnPatterns(): List<PathMapping> =
+        (0 until fnPatternsModel.rowCount).map { row -> pathMapping(fnPatternsModel, row) }
+            .filterNot { it.localPath.isBlank() && it.remotePath.isBlank() }
+
+    private fun pathMapping(model: DefaultTableModel, row: Int): PathMapping =
+        PathMapping(
+            localPath = PathMappingResolver.normalizeLocal(model.getValueAt(row, 0)?.toString().orEmpty()),
+            remotePath = model.getValueAt(row, 1)?.toString().orEmpty().trim(),
+        )
+
+    private fun mappingCells(model: DefaultTableModel, row: Int): Array<String> =
+        arrayOf(
+            model.getValueAt(row, 0)?.toString().orEmpty(),
+            model.getValueAt(row, 1)?.toString().orEmpty(),
+        )
 
     private fun actions(): List<ServerAction> =
-        (0 until actionsModel.rowCount).map { row ->
-            ServerAction(
-                id = actionsModel.getValueAt(row, 2)?.toString().orEmpty(),
-                name = actionsModel.getValueAt(row, 0)?.toString().orEmpty().trim(),
-                command = actionsModel.getValueAt(row, 1)?.toString().orEmpty().trim(),
-            )
-        }
+        (0 until actionsModel.rowCount).map { row -> actionAt(row) }
+
+    private fun actionAt(row: Int): ServerAction =
+        ServerAction(
+            id = actionsModel.getValueAt(row, 2)?.toString().orEmpty(),
+            name = actionsModel.getValueAt(row, 0)?.toString().orEmpty().trim(),
+            command = actionsModel.getValueAt(row, 1)?.toString().orEmpty().trim(),
+        )
+
+    private fun actionCells(action: ServerAction): Array<String> =
+        arrayOf(action.name, action.command, action.id)
 
     private fun stopEditing() {
+        if (fnPatternsTable.isEditing) fnPatternsTable.cellEditor.stopCellEditing()
         if (mappingsTable.isEditing) mappingsTable.cellEditor.stopCellEditing()
         if (actionsTable.isEditing) actionsTable.cellEditor.stopCellEditing()
     }
@@ -897,35 +1057,4 @@ private class ActionInputDialog(
         }
         return builder.panel
     }
-}
-
-private fun installCellClipboardActions(table: JTable) {
-    val shortcutMask = Toolkit.getDefaultToolkit().menuShortcutKeyMaskEx
-    val inputMap = table.getInputMap(JComponent.WHEN_FOCUSED)
-    val actionMap = table.actionMap
-
-    inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_C, shortcutMask), "copySelectedCell")
-    actionMap.put("copySelectedCell", object : AbstractAction() {
-        override fun actionPerformed(event: ActionEvent) {
-            val row = table.selectedRow
-            val column = table.selectedColumn
-            if (row < 0 || column < 0) return
-            val value = table.getValueAt(row, column)?.toString().orEmpty()
-            CopyPasteManager.getInstance().setContents(StringSelection(value))
-        }
-    })
-
-    inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_V, shortcutMask), "pasteSelectedCell")
-    actionMap.put("pasteSelectedCell", object : AbstractAction() {
-        override fun actionPerformed(event: ActionEvent) {
-            val row = table.selectedRow
-            val column = table.selectedColumn
-            if (row < 0 || column < 0) return
-            val value = CopyPasteManager.getInstance()
-                .getContents<String>(DataFlavor.stringFlavor)
-                ?.trim()
-                ?: return
-            table.setValueAt(value, row, column)
-        }
-    })
 }

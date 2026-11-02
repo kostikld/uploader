@@ -111,9 +111,9 @@ private fun uploadSelected(
     val expanded = ClassFileExpander.expand(selectedRows.map { it.uploadPath }, settings.withInnerClasses)
     val requests = expanded.mapNotNull { path ->
         val remote = if (profile.type == org.kavo.uploader.settings.ServerType.LOCAL)
-            PathMappingResolver.resolveLocal(data.projectRoot, path, profile.mappings, profile.basePath)
+            PathMappingResolver.resolveLocal(data.projectRoot, path, profile.mappings, profile.basePath, profile.fnPatterns)
         else
-            PathMappingResolver.resolve(data.projectRoot, path, profile.mappings)
+            PathMappingResolver.resolve(data.projectRoot, path, profile.mappings, profile.fnPatterns)
         remote ?: return@mapNotNull null
         UploadRequest(path, remote)
     }
@@ -132,12 +132,13 @@ private fun uploadSelected(
                         return
                     }
                     val archivePath =
-                        resolveArchivePath(data.projectRoot, archiveName, profile.mappings, profile.basePath)
+                        resolveArchivePath(data.projectRoot, archiveName, profile.mappings, profile.basePath, profile.fnPatterns)
                     service.zipLocal(
                         data.projectRoot,
                         archivePath,
                         requests,
                         profile.mappings,
+                        profile.fnPatterns,
                         indicator::checkCanceled
                     )
                     UploaderNotifications.info(
@@ -197,11 +198,12 @@ private fun resolveArchivePath(
     archiveName: String,
     mappings: List<org.kavo.uploader.settings.PathMapping>,
     basePath: String,
+    fnPatterns: List<org.kavo.uploader.settings.PathMapping>,
 ): java.nio.file.Path {
     if (archiveName.startsWith("/")) return withZipSuffix(java.nio.file.Paths.get(archiveName))
     val base = basePath.trim().replace('\\', '/').trimEnd('/')
     if (base.isNotEmpty()) return withZipSuffix(java.nio.file.Paths.get("$base/$archiveName"))
-    val resolved = PathMappingResolver.resolve(projectRoot, java.nio.file.Paths.get(archiveName), mappings)
+    val resolved = PathMappingResolver.resolve(projectRoot, java.nio.file.Paths.get(archiveName), mappings, fnPatterns)
     if (resolved != null) return withZipSuffix(java.nio.file.Paths.get(resolved))
     val root = java.nio.file.Paths.get(projectRoot.toAbsolutePath().normalize().toString())
     return withZipSuffix(

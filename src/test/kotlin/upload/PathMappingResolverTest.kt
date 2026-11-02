@@ -77,4 +77,83 @@ class PathMappingResolverTest {
 
         assertNull(result)
     }
+
+    @Test
+    fun `direct mapping wins over a fnmatch pattern`() {
+        val result = PathMappingResolver.resolve(
+            project,
+            project.resolve("target/classes/example.txt"),
+            listOf(PathMapping("target/classes", "/remote/classes")),
+            listOf(PathMapping("target/**", "/remote/fallback")),
+        )
+
+        assertEquals("/remote/classes/example.txt", result)
+    }
+
+    @Test
+    fun `fnmatch pattern resolves when no direct mapping matches`() {
+        val result = PathMappingResolver.resolve(
+            project,
+            project.resolve("src/main/web/app.js"),
+            listOf(PathMapping("target/classes", "/remote/classes")),
+            listOf(PathMapping("src/**", "/remote/web")),
+        )
+
+        assertEquals("/remote/web/main/web/app.js", result)
+    }
+
+    @Test
+    fun `keeps the path below the pattern literal prefix`() {
+        val result = PathMappingResolver.resolve(
+            project,
+            project.resolve("target/classes/com/example/ui/View.js"),
+            emptyList(),
+            listOf(PathMapping("target/classes/**/ui/*.js", "/remote/WEB-INF/classes")),
+        )
+
+        assertEquals("/remote/WEB-INF/classes/com/example/ui/View.js", result)
+    }
+
+    @Test
+    fun `most concrete fnmatch pattern wins`() {
+        val result = PathMappingResolver.resolve(
+            project,
+            project.resolve("src/web/app.js"),
+            emptyList(),
+            listOf(
+                PathMapping("**/*.js", "/remote/any"),
+                PathMapping("src/web/**.js", "/remote/web"),
+            ),
+        )
+
+        assertEquals("/remote/web/app.js", result)
+    }
+
+    @Test
+    fun `configured order breaks equal fnmatch concreteness`() {
+        val result = PathMappingResolver.resolve(
+            project,
+            project.resolve("src/a.js"),
+            emptyList(),
+            listOf(
+                PathMapping("src/*.js", "/remote/first"),
+                PathMapping("src/?.js", "/remote/second"),
+            ),
+        )
+
+        assertEquals("/remote/first/a.js", result)
+    }
+
+    @Test
+    fun `fnmatch pattern resolves a local path`() {
+        val result = PathMappingResolver.resolveLocal(
+            project,
+            project.resolve("docs/guide.html"),
+            emptyList(),
+            "/local",
+            listOf(PathMapping("docs/**.html", "/docs")),
+        )
+
+        assertEquals("/local/docs/guide.html", result)
+    }
 }

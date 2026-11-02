@@ -1,6 +1,7 @@
 package org.kavo.uploader.settings
 
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -24,6 +25,18 @@ class ServerProfileTest {
         assertEquals(listOf("Restart", "Status"), profile.actions.map { it.name })
         val fieldNames = ServerAction::class.java.declaredFields.map { it.name.lowercase() }
         assertFalse(fieldNames.any { it.contains("password") || it.contains("credential") })
+    }
+
+    @Test
+    fun `profile keeps fnmatch patterns apart from direct mappings`() {
+        val profile = ServerProfile(
+            mappings = mutableListOf(PathMapping("src", "/remote/src")),
+            fnPatterns = mutableListOf(PathMapping("docs/**.html", "/remote/docs")),
+        )
+
+        assertEquals(listOf("src"), profile.mappings.map { it.localPath })
+        assertEquals(listOf("docs/**.html"), profile.fnPatterns.map { it.localPath })
+        assertTrue(ServerProfile().fnPatterns.isEmpty())
     }
 
     @Test

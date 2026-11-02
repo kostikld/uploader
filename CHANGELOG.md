@@ -2,6 +2,18 @@
 
 # Uploader Changelog
 
+## Unreleased
+
+## 1.0.12 - 2026-11-03
+
+- Path mappings for files selected by fnmatch pattern (`*`, `?`, `[a-z]`), configured in a section above the
+   direct path mappings. Direct mappings win over patterns; among patterns the most concrete one wins.
+- Tool window settings: hide the **Add Folder** button, and wrap the tool window buttons onto several
+   rows when the window is too narrow for one row (a button moves down once more than half of it would be hidden).
+- Clone a server, path mapping, fnmatch pattern or action with the editor's duplicate-line key
+   (`Cmd+D` on macOS, `Ctrl+D` on Windows/Linux). A cloned server or action gets a sequenced name
+   (`serve(1)`, `serve(2)`) and a new id, and the server's stored password is copied to the clone.
+
 ## 1.0.11 - 2026-10-20
 
 - "Upload changed files" can list the files of a specific commit: enter a commit id, or leave it blank for current working-tree changes
