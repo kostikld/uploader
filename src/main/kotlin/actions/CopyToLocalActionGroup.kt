@@ -132,9 +132,9 @@ internal fun resolveCopyRequests(
     val expanded = ClassFileExpander.expand(files, SftpSettings.getInstance().withInnerClasses)
     val requests = expanded.mapNotNull { file ->
         val target = if (profile.type == org.kavo.uploader.settings.ServerType.LOCAL)
-            PathMappingResolver.resolveLocal(projectRoot, file, profile.mappings, profile.basePath)
+            PathMappingResolver.resolveLocal(projectRoot, file, profile.mappings, profile.basePath, profile.fnPatterns)
         else
-            PathMappingResolver.resolve(projectRoot, file, profile.mappings)
+            PathMappingResolver.resolve(projectRoot, file, profile.mappings, profile.fnPatterns)
         target ?: return@mapNotNull null
         UploadRequest(file, target)
     }

@@ -22,6 +22,8 @@ Passwords are stored in the IntelliJ Password Safe, not in the project configura
 4. Add one or more path mappings:
    - **Project-relative path**: the local directory, relative to the project root.
    - **Remote directory**: the corresponding absolute directory on the server.
+
+   Optionally add fnmatch patterns (see below) to select files by name instead of by directory.
 5. Save the profile. Use **Test Connection** from the profile's context menu to verify it.
 
 For example, this mapping uploads `src/main/resources/app.yml` to `/var/www/app/src/main/resources/app.yml`:
@@ -31,6 +33,25 @@ For example, this mapping uploads `src/main/resources/app.yml` to `/var/www/app/
 | `/` | `/var/www/app` |
 
 When mappings overlap, the most specific local path is used.
+
+### Fnmatch patterns
+
+Files that are scattered over the project are often easier to select with a pattern than with a
+directory. Add rows to the **Fnmatch patterns** table, shown above the path mappings:
+
+| Pattern | Remote directory |
+| --- | --- |
+| `src/web/**` | `/var/www/static` |
+
+Patterns are matched against the project-relative path of a file: `*` matches any characters
+(including `/`), `?` matches one character, and `[a-z]` (or `[!a-z]` for the opposite) matches a
+character class. Matching is case-sensitive. Everything below the pattern's wildcard-free prefix is
+kept, the same way path mappings keep the path below their local directory: with the mapping above,
+`src/web/js/app.js` is uploaded to `/var/www/static/js/app.js`.
+
+A path mapping always wins over a pattern for the same file. When several patterns match a file, the
+most concrete one is used: the longest wildcard-free prefix first, then the fewest wildcards, and
+finally the order of the table.
 
 ## Upload files
 
@@ -47,7 +68,7 @@ Choose a configured server profile from the submenu. Required remote directories
 
 In the **SFTP Uploader** tool window, select **Upload changed files**. The plugin prompts for a commit id: enter one to list the files changed in that commit, or leave it blank to use the current Git working tree. It then lets you choose a server and files, and uploads the selected items.
 
-Files that do not match a path mapping are disabled. When compiled Java uploads are enabled, Java files without a compiled class are also disabled.
+Files that do not match a path mapping or an fnmatch pattern are disabled. When compiled Java uploads are enabled, Java files without a compiled class are also disabled.
 
 ## Compare with the server
 
@@ -77,9 +98,10 @@ Only save and run commands you trust: actions execute on the remote server as th
 
 ## Import and export
 
-Path mappings and server actions can be copied to the clipboard and imported into another profile.
+Path mappings, fnmatch patterns and server actions can be copied to the clipboard and imported into another profile.
 
 - Mapping format: `local path -> remote path`
+- Pattern format: `pattern -> remote path`
 - Action format: `name -> command`
 
 ## Build from source

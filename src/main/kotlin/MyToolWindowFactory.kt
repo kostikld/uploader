@@ -580,6 +580,18 @@ private class ServerProfileDialog(private val project: Project, private val exis
     private val useRsyncCheckbox = JCheckBox(MyMessageBundle.message("server.useRsync")).apply {
         isSelected = existing?.useRsync ?: SftpSettings.getInstance().newServerUseRsync
     }
+    private val fnPatternsModel = object : DefaultTableModel(
+        arrayOf(
+            MyMessageBundle.message("fnmatch.pattern"),
+            MyMessageBundle.message("fnmatch.remote"),
+        ),
+        0,
+    ) {
+        override fun isCellEditable(row: Int, column: Int) = true
+    }
+    private val fnPatternsTable = JBTable(fnPatternsModel).apply {
+        installCellClipboardActions(this)
+    }
     private val mappingsModel = object : DefaultTableModel(arrayOf("Project-relative path", "Remote directory"), 0) {
         override fun isCellEditable(row: Int, column: Int) = true
     }
@@ -605,8 +617,10 @@ private class ServerProfileDialog(private val project: Project, private val exis
         title =
             if (existing == null) MyMessageBundle.message("server.dialog.add") else MyMessageBundle.message("server.dialog.edit")
         if (existing == null) {
+            fnPatternsModel.addRow(arrayOf("", ""))
             mappingsModel.addRow(arrayOf("", ""))
         } else {
+            existing.fnPatterns.forEach { fnPatternsModel.addRow(arrayOf(it.localPath, it.remotePath)) }
             existing.mappings.forEach { mappingsModel.addRow(arrayOf(it.localPath, it.remotePath)) }
             existing.actions.forEach { actionsModel.addRow(arrayOf(it.name, it.command, it.id)) }
         }
@@ -614,6 +628,37 @@ private class ServerProfileDialog(private val project: Project, private val exis
     }
 
     override fun createCenterPanel(): JComponent {
+        val fnPanel = JPanel(BorderLayout()).apply {
+            add(JBScrollPane(fnPatternsTable), BorderLayout.CENTER)
+            add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
+                add(JButton(MyMessageBundle.message("fnmatch.add")).apply {
+                    addActionListener { fnPatternsModel.addRow(arrayOf("", "")) }
+                })
+                add(JButton(MyMessageBundle.message("fnmatch.remove")).apply {
+                    addActionListener {
+                        fnPatternsTable.selectedRows.sortedDescending().forEach(fnPatternsModel::removeRow)
+                    }
+                })
+                add(JButton(MyMessageBundle.message("fnmatch.copy")).apply {
+                    addActionListener {
+                        stopEditing()
+                        val patterns = (0 until fnPatternsModel.rowCount).map { row ->
+                            PathMapping(
+                                localPath = fnPatternsModel.getValueAt(row, 0)?.toString().orEmpty().trim(),
+                                remotePath = fnPatternsModel.getValueAt(row, 1)?.toString().orEmpty().trim(),
+                            )
+                        }.filterNot { it.localPath.isBlank() && it.remotePath.isBlank() }
+                        val text = ProfileTransfer.encodeMappings(patterns)
+                        copyToClipboard(text)
+                        UploaderNotifications.info(project, MyMessageBundle.message("fnmatch.copied", patterns.size))
+                    }
+                })
+                add(JButton(MyMessageBundle.message("fnmatch.import")).apply {
+                    addActionListener { importFnPatterns() }
+                })
+            }, BorderLayout.SOUTH)
+        }
+        fnPanel.preferredSize = Dimension(680, 140)
         val mappingPanel = JPanel(BorderLayout()).apply {
             add(JBScrollPane(mappingsTable), BorderLayout.CENTER)
             add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
@@ -702,6 +747,7 @@ private class ServerProfileDialog(private val project: Project, private val exis
                 .addSeparator()
         }
         builder
+            .addLabeledComponentFillVertically(MyMessageBundle.message("server.fnPatterns"), fnPanel)
             .addLabeledComponentFillVertically(MyMessageBundle.message("server.mappings"), mappingPanel)
         if (!isLocal) {
             builder.addLabeledComponentFillVertically(MyMessageBundle.message("server.actions"), actionsPanel)
@@ -750,6 +796,29 @@ private class ServerProfileDialog(private val project: Project, private val exis
             }
         }
 
+        val patterns = mutableSetOf<String>()
+        fnPatterns().forEach { entry ->
+            val pattern = PathMappingResolver.normalizeLocal(entry.localPath)
+            if (pattern.split('/').any { it == ".." }) {
+                return ValidationInfo(MyMessageBundle.message("validation.local.path"), fnPatternsTable)
+            }
+            if (pattern.isEmpty()) {
+                return ValidationInfo(MyMessageBundle.message("validation.fnmatch.blank"), fnPatternsTable)
+            }
+            if (!patterns.add(pattern)) {
+                return ValidationInfo(MyMessageBundle.message("validation.fnmatch.duplicate", pattern), fnPatternsTable)
+            }
+            if (!isLocal) {
+                try {
+                    if (!PathMappingResolver.normalizeRemote(entry.remotePath).startsWith("/")) {
+                        return ValidationInfo(MyMessageBundle.message("validation.remote.absolute"), fnPatternsTable)
+                    }
+                } catch (_: IllegalArgumentException) {
+                    return ValidationInfo(MyMessageBundle.message("validation.remote.path"), fnPatternsTable)
+                }
+            }
+        }
+
         if (isLocal) {
             if (basePathField.text.trim().split('/').any { it == ".." }) {
                 return ValidationInfo(MyMessageBundle.message("validation.local.path"), basePathField)
@@ -794,6 +863,7 @@ private class ServerProfileDialog(private val project: Project, private val exis
             type = if (isLocal) ServerType.LOCAL else ServerType.SFTP,
             basePath = if (isLocal) basePathField.text.trim() else "",
             mappings = mappings().toMutableList(),
+            fnPatterns = fnPatterns().toMutableList(),
             actions = if (isLocal) mutableListOf() else actions().toMutableList(),
         )
     }
@@ -816,6 +886,18 @@ private class ServerProfileDialog(private val project: Project, private val exis
         UploaderNotifications.info(project, MyMessageBundle.message("mapping.imported", mappings.size))
     }
 
+    private fun importFnPatterns() {
+        val dialog = ImportLinesDialog(
+            project,
+            MyMessageBundle.message("fnmatch.import"),
+            MyMessageBundle.message("import.fnmatch.hint")
+        )
+        if (!dialog.showAndGet()) return
+        val patterns = ProfileTransfer.decodeMappings(dialog.text())
+        patterns.forEach { fnPatternsModel.addRow(arrayOf(it.localPath, it.remotePath)) }
+        UploaderNotifications.info(project, MyMessageBundle.message("fnmatch.imported", patterns.size))
+    }
+
     private fun importActions() {
         val dialog = ImportLinesDialog(
             project,
@@ -836,6 +918,14 @@ private class ServerProfileDialog(private val project: Project, private val exis
             )
         }.filterNot { it.localPath.isBlank() && it.remotePath.isBlank() }
 
+    private fun fnPatterns(): List<PathMapping> =
+        (0 until fnPatternsModel.rowCount).map { row ->
+            PathMapping(
+                localPath = PathMappingResolver.normalizeLocal(fnPatternsModel.getValueAt(row, 0)?.toString().orEmpty()),
+                remotePath = fnPatternsModel.getValueAt(row, 1)?.toString().orEmpty().trim(),
+            )
+        }.filterNot { it.localPath.isBlank() && it.remotePath.isBlank() }
+
     private fun actions(): List<ServerAction> =
         (0 until actionsModel.rowCount).map { row ->
             ServerAction(
@@ -846,6 +936,7 @@ private class ServerProfileDialog(private val project: Project, private val exis
         }
 
     private fun stopEditing() {
+        if (fnPatternsTable.isEditing) fnPatternsTable.cellEditor.stopCellEditing()
         if (mappingsTable.isEditing) mappingsTable.cellEditor.stopCellEditing()
         if (actionsTable.isEditing) actionsTable.cellEditor.stopCellEditing()
     }

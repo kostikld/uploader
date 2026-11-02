@@ -2,6 +2,11 @@
 
 # Uploader Changelog
 
+## Unreleased
+
+- Path mappings for files selected by fnmatch pattern (`*`, `?`, `[a-z]`), configured in a section above the
+   direct path mappings. Direct mappings win over patterns; among patterns the most concrete one wins.
+
 ## 1.0.11 - 2026-10-20
 
 - "Upload changed files" can list the files of a specific commit: enter a commit id, or leave it blank for current working-tree changes

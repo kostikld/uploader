@@ -4,8 +4,13 @@ import org.kavo.uploader.settings.PathMapping
 import java.nio.file.Path
 
 object PathMappingResolver {
-    fun resolve(projectRoot: Path, file: Path, mappings: List<PathMapping>): String? {
-        val match = resolveMatch(projectRoot, file, mappings) ?: return null
+    fun resolve(
+        projectRoot: Path,
+        file: Path,
+        mappings: List<PathMapping>,
+        fnPatterns: List<PathMapping> = emptyList(),
+    ): String? {
+        val match = resolveMatch(projectRoot, file, mappings, fnPatterns) ?: return null
         val (mapping, remainder) = match
         return joinRemote(mapping.remotePath, remainder)
     }
@@ -15,8 +20,9 @@ object PathMappingResolver {
         file: Path,
         mappings: List<PathMapping>,
         basePath: String,
+        fnPatterns: List<PathMapping> = emptyList(),
     ): String? {
-        val match = resolveMatch(projectRoot, file, mappings) ?: return null
+        val match = resolveMatch(projectRoot, file, mappings, fnPatterns) ?: return null
         val (mapping, remainder) = match
         val remote = normalizeRemote(mapping.remotePath)
         val relative = normalizeLocal(remainder)
@@ -28,20 +34,22 @@ object PathMappingResolver {
         return if (absolute) "/$body" else body
     }
 
-    private fun resolveMatch(projectRoot: Path, file: Path, mappings: List<PathMapping>): Pair<PathMapping, String>? {
+    /**
+     * Finds the mapping that owns a file. Direct mappings win over fnmatch patterns; the file keeps
+     * everything below the matched local root (or below the pattern's literal prefix).
+     */
+    private fun resolveMatch(
+        projectRoot: Path,
+        file: Path,
+        mappings: List<PathMapping>,
+        fnPatterns: List<PathMapping>,
+    ): Pair<PathMapping, String>? {
         val root = projectRoot.toAbsolutePath().normalize()
         val normalizedFile = file.toAbsolutePath().normalize()
         if (!normalizedFile.startsWith(root)) return null
 
         val projectRelative = normalizeLocal(root.relativize(normalizedFile).toString())
-        val match = mappings
-            .mapNotNull { mapping ->
-                val localRoot = normalizeLocal(mapping.localPath)
-                if (!matches(projectRelative, localRoot)) null else mapping to localRoot
-            }
-            .maxByOrNull { (_, localRoot) -> localRoot.length }
-            ?: return null
-
+        val match = directMatch(mappings, projectRelative) ?: fnMatch(fnPatterns, projectRelative) ?: return null
         val (mapping, localRoot) = match
         val remainder = if (localRoot.isEmpty()) {
             projectRelative
@@ -49,6 +57,57 @@ object PathMappingResolver {
             projectRelative.removePrefix(localRoot).removePrefix("/")
         }
         return mapping to remainder
+    }
+
+    private fun directMatch(mappings: List<PathMapping>, projectRelative: String): Pair<PathMapping, String>? =
+        mappings
+            .mapNotNull { mapping ->
+                val localRoot = normalizeLocal(mapping.localPath)
+                if (!matches(projectRelative, localRoot)) null else mapping to localRoot
+            }
+            .maxByOrNull { (_, localRoot) -> localRoot.length }
+
+    /**
+     * Matches a file against the configured patterns. The most concrete pattern wins: the longest
+     * literal prefix, then the most literal characters, then the fewest wildcards, then the configured order.
+     */
+    private fun fnMatch(patterns: List<PathMapping>, projectRelative: String): Pair<PathMapping, String>? {
+        val candidates = patterns
+            .mapIndexed { order, mapping ->
+                val pattern = normalizeLocal(mapping.localPath)
+                when {
+                    pattern.isEmpty() -> null
+                    !FnMatch.matches(pattern, projectRelative) -> null
+                    else -> FnPatternMatch(mapping, pattern, order)
+                }
+            }
+            .filterNotNull()
+            .sortedWith(moreConcreteFirst)
+            .firstOrNull()
+            ?: return null
+        return candidates.mapping to candidates.prefix
+    }
+
+    private val moreConcreteFirst = Comparator<FnPatternMatch> { first, second ->
+        when {
+            first.prefixSegments != second.prefixSegments -> second.prefixSegments - first.prefixSegments
+            first.prefixLength != second.prefixLength -> second.prefixLength - first.prefixLength
+            first.literalChars != second.literalChars -> second.literalChars - first.literalChars
+            first.wildcards != second.wildcards -> first.wildcards - second.wildcards
+            else -> first.order - second.order
+        }
+    }
+
+    private class FnPatternMatch(
+        val mapping: PathMapping,
+        val pattern: String,
+        val order: Int,
+    ) {
+        val prefix: String = FnMatch.literalPrefix(pattern)
+        val prefixSegments: Int = if (prefix.isEmpty()) 0 else prefix.count { it == '/' } + 1
+        val prefixLength: Int = prefix.length
+        val wildcards: Int = FnMatch.wildcardCount(pattern)
+        val literalChars: Int = pattern.length - wildcards
     }
 
     fun normalizeLocal(path: String): String =

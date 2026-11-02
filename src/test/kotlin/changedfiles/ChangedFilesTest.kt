@@ -55,6 +55,14 @@ class ChangedFilesTest {
            }
 
      @Test
+    fun `file enabled only by a fnmatch pattern`() {
+        val path = Paths.get("/project/docs/guide.html")
+        val row = buildUploadRows(listOf(path), emptyMap(), true, projectRoot).single()
+        assertFalse(rowIsEnabled(row, projectRoot, mappings))
+        assertTrue(rowIsEnabled(row, projectRoot, mappings, listOf(PathMapping("docs/**.html", "/remote/docs"))))
+    }
+
+    @Test
     fun `preserves order of changed files`() {
         val one = Paths.get("/project/src/A.java")
         val two = Paths.get("/project/src/B.java")

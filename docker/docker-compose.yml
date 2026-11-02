@@ -1,0 +1,12 @@
+services:
+  rsync-ssh:
+    build:
+      context: ./alpine_rsync_ssh
+      tags:
+        - alpine_rsync_ssh:1.0
+        - alpine_rsync_ssh:latest
+    image: alpine_rsync_ssh:1.0
+    container_name: alpine_rsync_ssh
+    ports:
+      - "2222:22" # host 2222 -> sshd 22 in the container
+    restart: unless-stopped

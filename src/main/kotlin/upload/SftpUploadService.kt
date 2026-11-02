@@ -196,6 +196,7 @@ class SftpUploadService {
         archivePath: Path,
         requests: List<UploadRequest>,
         mappings: List<PathMapping>,
+        fnPatterns: List<PathMapping> = emptyList(),
         checkCanceled: () -> Unit = {},
     ) {
         val archive = archivePath.toAbsolutePath().normalize()
@@ -216,7 +217,7 @@ class SftpUploadService {
             val entries = requests.map { request ->
                 checkCanceled()
                 require(Files.isRegularFile(request.localFile)) { "Not a regular file: ${request.localFile}" }
-                val internal = PathMappingResolver.resolveLocal(projectRoot, request.localFile, mappings, "")
+                val internal = PathMappingResolver.resolveLocal(projectRoot, request.localFile, mappings, "", fnPatterns)
                     .orEmpty().removePrefix("/")
                 require(internal.isNotBlank()) { "Mapped path for ${request.localFile} is empty" }
                 val staged = stagingRoot.resolve(internal)

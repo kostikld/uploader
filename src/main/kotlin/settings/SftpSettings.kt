@@ -58,6 +58,7 @@ data class ServerProfile(
     var type: ServerType = ServerType.SFTP,
     var basePath: String = "",
     var mappings: MutableList<PathMapping> = mutableListOf(),
+    var fnPatterns: MutableList<PathMapping> = mutableListOf(),
     var actions: MutableList<ServerAction> = mutableListOf(),
 )
 
