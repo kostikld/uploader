@@ -26,6 +26,7 @@ import com.intellij.util.ui.UIUtil
 import org.kavo.uploader.actions.launchUploadChangedFiles
 import org.kavo.uploader.settings.*
 import org.kavo.uploader.transfer.*
+import org.kavo.uploader.ui.*
 import org.kavo.uploader.upload.*
 import java.awt.*
 import java.awt.datatransfer.DataFlavor
@@ -74,6 +75,7 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
                 }
             }
         })
+        installCloneShortcut(this) { cloneSelected() }
     }
 
     private var menuPanel = buildMenuPanel()
@@ -160,6 +162,48 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
         if (node.path.isEmpty()) return
         if (!FolderDeleteDialog(project, node.path).showAndGet()) return
         deleteFolder(node.path)
+    }
+
+    private fun cloneSelected() {
+        val profile = (serverTree.selectionPath?.lastPathComponent as? ServerNode)?.profile ?: return
+        if (profile.type == ServerType.LOCAL) {
+            UploaderNotifications.error(
+                project,
+                MyMessageBundle.message("server.local.clone.unsupported", profile.name),
+            )
+            return
+        }
+        val clone = cloneProfile(profile, SettingsAccess.allServers(project).map { it.name })
+        SettingsAccess.save(project, clone)
+        refresh()
+        selectNode(clone.id)
+        UploaderNotifications.info(
+            project,
+            MyMessageBundle.message("server.cloned", profile.name, clone.name),
+        )
+        AppExecutorUtil.getAppExecutorService().execute {
+            val password = PasswordStore.get(profile.id)
+            if (password != null) {
+                try {
+                    PasswordStore.set(clone.id, clone.username, password)
+                } catch (error: Exception) {
+                    UploaderNotifications.error(
+                        project,
+                        MyMessageBundle.message(
+                            "password.save.failed",
+                            clone.name,
+                            error.message ?: error.javaClass.simpleName,
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    private fun selectNode(key: String) {
+        (treeModel.root as? ServerNode)?.let { root ->
+            locate(root, key)?.let { serverTree.setSelectionPath(TreePath(it)) }
+        }
     }
 
     private fun selectionKey(node: ServerNode?): String? =
@@ -600,13 +644,17 @@ private class ServerProfileDialog(private val project: Project, private val exis
         override fun isCellEditable(row: Int, column: Int) = true
     }
     private val fnPatternsTable = JBTable(fnPatternsModel).apply {
-        installCellClipboardActions(this)
+        installTableShortcuts(this, fnPatternsModel) { rows ->
+            rows.map { row -> mappingCells(fnPatternsModel, row) }
+        }
     }
     private val mappingsModel = object : DefaultTableModel(arrayOf("Project-relative path", "Remote directory"), 0) {
         override fun isCellEditable(row: Int, column: Int) = true
     }
     private val mappingsTable = JBTable(mappingsModel).apply {
-        installCellClipboardActions(this)
+        installTableShortcuts(this, mappingsModel) { rows ->
+            rows.map { row -> mappingCells(mappingsModel, row) }
+        }
     }
     private val actionsModel = object : DefaultTableModel(
         arrayOf(
@@ -620,7 +668,10 @@ private class ServerProfileDialog(private val project: Project, private val exis
     }
     private val actionsTable = JBTable(actionsModel).apply {
         columnModel.removeColumn(columnModel.getColumn(2))
-        installCellClipboardActions(this)
+        installTableShortcuts(this, actionsModel) { rows ->
+            val takenNames = actions().map { it.name }.toMutableSet()
+            rows.map { row -> actionCells(cloneAction(actionAt(row), takenNames)) }
+        }
     }
 
     init {
@@ -921,29 +972,37 @@ private class ServerProfileDialog(private val project: Project, private val exis
     }
 
     private fun mappings(): List<PathMapping> =
-        (0 until mappingsModel.rowCount).map { row ->
-            PathMapping(
-                localPath = PathMappingResolver.normalizeLocal(mappingsModel.getValueAt(row, 0)?.toString().orEmpty()),
-                remotePath = mappingsModel.getValueAt(row, 1)?.toString().orEmpty().trim(),
-            )
-        }.filterNot { it.localPath.isBlank() && it.remotePath.isBlank() }
+        (0 until mappingsModel.rowCount).map { row -> pathMapping(mappingsModel, row) }
+            .filterNot { it.localPath.isBlank() && it.remotePath.isBlank() }
 
     private fun fnPatterns(): List<PathMapping> =
-        (0 until fnPatternsModel.rowCount).map { row ->
-            PathMapping(
-                localPath = PathMappingResolver.normalizeLocal(fnPatternsModel.getValueAt(row, 0)?.toString().orEmpty()),
-                remotePath = fnPatternsModel.getValueAt(row, 1)?.toString().orEmpty().trim(),
-            )
-        }.filterNot { it.localPath.isBlank() && it.remotePath.isBlank() }
+        (0 until fnPatternsModel.rowCount).map { row -> pathMapping(fnPatternsModel, row) }
+            .filterNot { it.localPath.isBlank() && it.remotePath.isBlank() }
+
+    private fun pathMapping(model: DefaultTableModel, row: Int): PathMapping =
+        PathMapping(
+            localPath = PathMappingResolver.normalizeLocal(model.getValueAt(row, 0)?.toString().orEmpty()),
+            remotePath = model.getValueAt(row, 1)?.toString().orEmpty().trim(),
+        )
+
+    private fun mappingCells(model: DefaultTableModel, row: Int): Array<String> =
+        arrayOf(
+            model.getValueAt(row, 0)?.toString().orEmpty(),
+            model.getValueAt(row, 1)?.toString().orEmpty(),
+        )
 
     private fun actions(): List<ServerAction> =
-        (0 until actionsModel.rowCount).map { row ->
-            ServerAction(
-                id = actionsModel.getValueAt(row, 2)?.toString().orEmpty(),
-                name = actionsModel.getValueAt(row, 0)?.toString().orEmpty().trim(),
-                command = actionsModel.getValueAt(row, 1)?.toString().orEmpty().trim(),
-            )
-        }
+        (0 until actionsModel.rowCount).map { row -> actionAt(row) }
+
+    private fun actionAt(row: Int): ServerAction =
+        ServerAction(
+            id = actionsModel.getValueAt(row, 2)?.toString().orEmpty(),
+            name = actionsModel.getValueAt(row, 0)?.toString().orEmpty().trim(),
+            command = actionsModel.getValueAt(row, 1)?.toString().orEmpty().trim(),
+        )
+
+    private fun actionCells(action: ServerAction): Array<String> =
+        arrayOf(action.name, action.command, action.id)
 
     private fun stopEditing() {
         if (fnPatternsTable.isEditing) fnPatternsTable.cellEditor.stopCellEditing()
@@ -998,35 +1057,4 @@ private class ActionInputDialog(
         }
         return builder.panel
     }
-}
-
-private fun installCellClipboardActions(table: JTable) {
-    val shortcutMask = Toolkit.getDefaultToolkit().menuShortcutKeyMaskEx
-    val inputMap = table.getInputMap(JComponent.WHEN_FOCUSED)
-    val actionMap = table.actionMap
-
-    inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_C, shortcutMask), "copySelectedCell")
-    actionMap.put("copySelectedCell", object : AbstractAction() {
-        override fun actionPerformed(event: ActionEvent) {
-            val row = table.selectedRow
-            val column = table.selectedColumn
-            if (row < 0 || column < 0) return
-            val value = table.getValueAt(row, column)?.toString().orEmpty()
-            CopyPasteManager.getInstance().setContents(StringSelection(value))
-        }
-    })
-
-    inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_V, shortcutMask), "pasteSelectedCell")
-    actionMap.put("pasteSelectedCell", object : AbstractAction() {
-        override fun actionPerformed(event: ActionEvent) {
-            val row = table.selectedRow
-            val column = table.selectedColumn
-            if (row < 0 || column < 0) return
-            val value = CopyPasteManager.getInstance()
-                .getContents<String>(DataFlavor.stringFlavor)
-                ?.trim()
-                ?: return
-            table.setValueAt(value, row, column)
-        }
-    })
 }

@@ -104,6 +104,21 @@ You can use template parameters in actions. For example, `date -l ${option}` wil
 
 Only save and run commands you trust: actions execute on the remote server as the configured user.
 
+## Clone entries with the keyboard
+
+Use the key the editor uses for "Duplicate Line or Selection": `Cmd+D` on macOS, `Ctrl+D` on Windows and
+Linux. It clones whatever is selected:
+
+- **Server**: select it in the tool window and press the key. The copy keeps the host, port, username,
+   rsync setting, folder, path mappings, fnmatch patterns and actions, gets a new id, and the stored
+   password is copied to it. Its name continues the sequence: `serve` -> `serve(1)` -> `serve(2)`.
+- **Path mapping** and **fnmatch pattern**: in the server dialog, copies of the selected rows are inserted
+   below the selection. Local paths and patterns must stay unique, so edit a copy before saving.
+- **Action**: the copy is inserted below with a new id and a sequenced name, since action names must be
+   unique: `Deploy` -> `Deploy(1)`.
+
+The **Local** server entry and folders cannot be cloned - edit or rename them instead.
+
 ## Import and export
 
 Path mappings, fnmatch patterns and server actions can be copied to the clipboard and imported into another profile.
