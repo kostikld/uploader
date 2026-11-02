@@ -87,6 +87,14 @@ Open **Settings | Tools | SFTP Uploader**:
 - **Upload compiled classes for Java files**: make normal uploads use compiled Java classes.
 - **New servers use rsync**: enable rsync by default when creating a profile.
 
+The settings dialog also has a **Tool window buttons** section for the buttons at the bottom of the tool window:
+
+- **Show "Add Folder" button**: add the **Add Folder** button. Off by default.
+- **Show buttons in several rows when they do not fit**: when the window is too narrow for one row, buttons
+   that would be more than half hidden move to a new row. On by default.
+
+Both apply the next time the tool window is refreshed.
+
 Each server profile can also enable **Upload using rsync**. If an rsync upload fails, the plugin offers an SFTP fallback.
 
 ## Server actions

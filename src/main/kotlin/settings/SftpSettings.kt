@@ -62,12 +62,17 @@ data class ServerProfile(
     var actions: MutableList<ServerAction> = mutableListOf(),
 )
 
+const val MENU_BUTTONS_CLIP_THRESHOLD = 0.5
+const val MENU_BUTTONS_GAP = 4
+
 data class SftpSettingsState(
     var servers: MutableList<ServerProfile> = mutableListOf(),
     var folders: MutableList<String> = mutableListOf(),
     var withInnerClasses: Boolean = true,
     var uploadJavaClassFiles: Boolean = true,
     var newServerUseRsync: Boolean = false,
+    var showMenuAddFolderButton: Boolean = false,
+    var wrapMenuButtons: Boolean = true,
 )
 
 @Service(Service.Level.APP)
@@ -162,6 +167,18 @@ class SftpSettings : PersistentStateComponent<SftpSettingsState> {
         get() = state.newServerUseRsync
         set(value) {
             state.newServerUseRsync = value
+          }
+
+    var showMenuAddFolderButton: Boolean
+        get() = state.showMenuAddFolderButton
+        set(value) {
+            state.showMenuAddFolderButton = value
+          }
+
+    var wrapMenuButtons: Boolean
+        get() = state.wrapMenuButtons
+        set(value) {
+            state.wrapMenuButtons = value
           }
 
     fun save(profile: ServerProfile) {

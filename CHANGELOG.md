@@ -6,6 +6,8 @@
 
 - Path mappings for files selected by fnmatch pattern (`*`, `?`, `[a-z]`), configured in a section above the
    direct path mappings. Direct mappings win over patterns; among patterns the most concrete one wins.
+- Tool window settings: hide the **Add Folder** button, and wrap the tool window buttons onto several
+   rows when the window is too narrow for one row (a button moves down once more than half of it would be hidden).
 
 ## 1.0.11 - 2026-10-20
 

@@ -76,29 +76,39 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
         })
     }
 
+    private var menuPanel = buildMenuPanel()
+
     init {
         background = serverPanelBackground
         add(JBScrollPane(serverTree).apply {
             background = serverPanelBackground
             viewport.background = serverPanelBackground
         }, BorderLayout.CENTER)
-            add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
-                background = serverPanelBackground
-                add(JButton(MyMessageBundle.message("server.add")).apply {
-                addActionListener { editProfile(null) }
-            })
-            add(JButton(MyMessageBundle.message("folder.add")).apply {
-                addActionListener { addFolder() }
-            })
-            add(JButton(MyMessageBundle.message("server.upload.git_changed")).apply {
-                addActionListener { launchUploadChangedFiles(project) }
-            })
-        }, BorderLayout.SOUTH)
+        add(menuPanel, BorderLayout.SOUTH)
         serverTree.addMouseListener(DragDropTracker(serverTree, this, project))
         refresh()
     }
 
+    private fun buildMenuPanel(): MenuButtonsPanel = MenuButtonsPanel(SettingsAccess.wrapMenuButtons(project)).apply {
+        background = serverPanelBackground
+        addMenuButton(JButton(MyMessageBundle.message("server.add")).apply {
+            addActionListener { editProfile(null) }
+        })
+        if (SettingsAccess.showMenuAddFolderButton(project)) {
+            addMenuButton(JButton(MyMessageBundle.message("folder.add")).apply {
+                addActionListener { addFolder() }
+            })
+        }
+        addMenuButton(JButton(MyMessageBundle.message("server.upload.git_changed")).apply {
+            addActionListener { launchUploadChangedFiles(project) }
+        })
+    }
+
     fun refresh() {
+        remove(menuPanel)
+        menuPanel = buildMenuPanel()
+        add(menuPanel, BorderLayout.SOUTH)
+        revalidate()
         val selectedKey = selectionKey(serverTree.selectionPath?.lastPathComponent as? ServerNode)
         val root = ServerNode(MyMessageBundle.message("folder.root"), "")
         SettingsAccess.local(project)

@@ -30,4 +30,10 @@ object SettingsAccess {
     fun deleteFolder(project: Project?, folder: String) {
         SftpSettings.getInstance().deleteFolder(folder)
     }
+
+    fun showMenuAddFolderButton(project: Project?): Boolean =
+        SftpSettings.getInstance().showMenuAddFolderButton
+
+    fun wrapMenuButtons(project: Project?): Boolean =
+        SftpSettings.getInstance().wrapMenuButtons
 }
