@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+## 1.0.13 - 2026-11-05
+
 - Path mappings and fnmatch patterns are configured in one table: a row whose local side contains `*`,
    `?`, or `[` selects files by pattern, and the section label says patterns are supported. The rule
    - direct paths win over patterns, then the most concrete pattern wins - is shown above the table and
