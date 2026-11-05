@@ -1,6 +1,7 @@
 package org.kavo.uploader.changedfiles
 
 import org.kavo.uploader.settings.PathMapping
+import org.kavo.uploader.settings.ServerProfile
 import org.kavo.uploader.upload.PathMappingResolver
 import java.nio.file.Path
 
@@ -51,3 +52,10 @@ fun rowIsEnabled(
         mappings,
     ) != null
 }
+
+/**
+ * Server preselected when the changed files dialog opens: the profile selected in the tool window,
+ * falling back to the first one when nothing (or a removed profile) is selected.
+ */
+fun initialServer(servers: List<ServerProfile>, selected: ServerProfile?): ServerProfile? =
+    servers.firstOrNull { it.id == selected?.id } ?: servers.firstOrNull()

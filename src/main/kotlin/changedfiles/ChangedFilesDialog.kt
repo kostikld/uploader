@@ -26,6 +26,9 @@ data class ChangedFilesData(
     val rows: List<UploadRow>,
     val projectRoot: java.nio.file.Path,
     val servers: List<ServerProfile>,
+    // The profile that was selected in the tool window when the scan started, so it can be
+    // preselected instead of the first profile of the list.
+    val selectedServer: ServerProfile? = null,
 )
 
 class ChangedFilesDialog(
@@ -66,7 +69,7 @@ class ChangedFilesDialog(
             listPanel.add(check)
         }
 
-        if (data.servers.isNotEmpty()) server = data.servers.first()
+        server = initialServer(data.servers, data.selectedServer)
         mappings = server?.mappings.orEmpty()
 
         serverButton.text = server?.name.orEmpty()

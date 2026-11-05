@@ -23,7 +23,10 @@ import java.io.File
 import java.util.concurrent.Callable
 import javax.swing.JComponent
 
-fun launchUploadChangedFiles(project: Project) {
+fun launchUploadChangedFiles(
+    project: Project,
+    selected: org.kavo.uploader.settings.ServerProfile? = null,
+) {
     val servers = SettingsAccess.allServers(project)
     if (servers.isEmpty()) {
         UploaderNotifications.info(project, MyMessageBundle.message("changed.no.servers"))
@@ -39,7 +42,7 @@ fun launchUploadChangedFiles(project: Project) {
     val commit = commitDialog.commit().takeIf { it.isNotEmpty() }
     object : Task.Backgroundable(project, MyMessageBundle.message("changed.scanning"), true) {
         override fun run(indicator: ProgressIndicator) {
-            scanAndShow(project, workDir, servers, commit)
+            scanAndShow(project, workDir, servers, commit, selected)
         }
     }.queue()
 }
@@ -49,6 +52,7 @@ private fun scanAndShow(
     workDir: File,
     servers: List<org.kavo.uploader.settings.ServerProfile>,
     commit: String?,
+    selected: org.kavo.uploader.settings.ServerProfile?,
 ) {
     val basePath = project.basePath ?: return
     val projectRoot = java.nio.file.Paths.get(basePath)
@@ -82,7 +86,7 @@ private fun scanAndShow(
         uploadJavaClassFiles = settings.uploadJavaClassFiles,
         projectRoot = projectRoot,
     )
-    val data = ChangedFilesData(rows, projectRoot, servers)
+    val data = ChangedFilesData(rows, projectRoot, servers, selected)
     ApplicationManager.getApplication().invokeLater {
         val dialog = ChangedFilesDialog(project, data)
         if (!dialog.showAndGet()) return@invokeLater

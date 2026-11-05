@@ -37,6 +37,10 @@ enum class ServerActionValidationError {
 fun pathSegments(path: String): List<String> =
     path.split('/').filter { it.isNotEmpty() }
 
+// Folder path of a folder entered under `parent`, normalized: empty and repeated separators collapse.
+fun nestedFolderPath(parent: String, name: String): String =
+    (pathSegments(parent) + pathSegments(name)).joinToString("/")
+
 fun validateServerActions(actions: List<ServerAction>): ServerActionValidationError? {
     val names = mutableSetOf<String>()
     actions.forEach { action ->

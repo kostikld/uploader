@@ -72,4 +72,12 @@ class SftpSettingsFolderTest {
         assertFalse(settings.folders().contains("prod/dev"))
     }
 
+    @Test
+    fun `nested folder path joins a parent and normalizes separators`() {
+        assertEquals("prod/dev", nestedFolderPath("prod", "dev"))
+        assertEquals("prod/dev/deep", nestedFolderPath("prod", "dev/deep"))
+        assertEquals("prod/dev", nestedFolderPath("prod/", "/dev/"))
+        assertEquals("dev", nestedFolderPath("", "dev"))
+    }
+
 }

@@ -95,7 +95,7 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
             })
         }
         addMenuButton(JButton(MyMessageBundle.message("server.upload.git_changed")).apply {
-            addActionListener { launchUploadChangedFiles(project) }
+            addActionListener { launchUploadChangedFiles(project, selectedProfile()) }
         })
     }
 
@@ -104,6 +104,7 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
         menuPanel = buildMenuPanel()
         add(menuPanel, BorderLayout.SOUTH)
         revalidate()
+        val expandedFolders = expandedFolderKeys()
         val selectedKey = selectionKey(serverTree.selectionPath?.lastPathComponent as? ServerNode)
         val root = ServerNode(MyMessageBundle.message("folder.root"), "")
         SettingsAccess.local(project)
@@ -133,8 +134,11 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
         }
         treeModel.setRoot(root)
         treeModel.reload()
+        expandedFolders.forEach { key ->
+            locate(root, key)?.let { serverTree.expandPath(treePath(it)) }
+        }
         selectedKey?.let { key ->
-            locate(root, key)?.let { serverTree.setSelectionPath(TreePath(it)) }
+            locate(root, key)?.let { serverTree.setSelectionPath(treePath(it)) }
         }
     }
 
@@ -195,9 +199,12 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
 
     private fun selectNode(key: String) {
         (treeModel.root as? ServerNode)?.let { root ->
-            locate(root, key)?.let { serverTree.setSelectionPath(TreePath(it)) }
+            locate(root, key)?.let { serverTree.setSelectionPath(treePath(it)) }
         }
     }
+
+    private fun selectedProfile(): ServerProfile? =
+        (serverTree.selectionPath?.lastPathComponent as? ServerNode)?.profile
 
     private fun selectionKey(node: ServerNode?): String? =
         when {
@@ -219,18 +226,48 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
         return null
     }
 
-    private fun addFolder() {
+    private fun treePath(nodes: List<ServerNode>): TreePath =
+        nodes.drop(1).fold(TreePath(nodes.first())) { path, node -> path.pathByAddingChild(node) }
+
+    // A refresh replaces every node, and Swing then forgets which folders were open. Remembering them
+    // keeps a folder open when a server inside it is added, cloned or removed.
+    private fun expandedFolderKeys(): List<String> {
+        val root = treeModel.root as? ServerNode ?: return emptyList()
+        return collectExpandedFolders(root, treePath(listOf(root)))
+    }
+
+    private fun collectExpandedFolders(node: ServerNode, path: TreePath): List<String> {
+        val keys = mutableListOf<String>()
+        node.folderChildren.forEach { child ->
+            val childPath = path.pathByAddingChild(child)
+            if (serverTree.isExpanded(childPath)) {
+                keys.add(child.path)
+                keys.addAll(collectExpandedFolders(child, childPath))
+            }
+        }
+        return keys
+    }
+
+    private fun addFolder(parent: String = "") {
+        val prompt =
+            if (parent.isEmpty()) MyMessageBundle.message("folder.add.prompt")
+            else MyMessageBundle.message("folder.add.sub.prompt")
         val name = Messages.showInputDialog(
             this,
-            MyMessageBundle.message("folder.add.prompt"),
+            prompt,
             MyMessageBundle.message("folder.add"),
             Messages.getQuestionIcon(),
         )?.trim()
         if (name.isNullOrBlank()) return
-        if (SettingsAccess.addFolder(project, name)) {
+        if (pathSegments(name).any { it == ".." }) {
+            UploaderNotifications.info(project, MyMessageBundle.message("validation.folder.path"))
+            return
+        }
+        val folder = nestedFolderPath(parent, name)
+        if (SettingsAccess.addFolder(project, folder)) {
             refresh()
         } else {
-            UploaderNotifications.info(project, MyMessageBundle.message("folder.exists", name))
+            UploaderNotifications.info(project, MyMessageBundle.message("folder.exists", folder))
         }
     }
 
@@ -292,6 +329,9 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
     private fun showFolderMenu(node: ServerNode, x: Int, y: Int) {
         val folder = node.path
         JPopupMenu().apply {
+            add(JMenuItem(MyMessageBundle.message("folder.add")).apply {
+                addActionListener { addFolder(folder) }
+            })
             add(JMenuItem(MyMessageBundle.message("folder.rename")).apply {
                 addActionListener { renameFolder(folder) }
             })

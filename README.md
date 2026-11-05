@@ -56,6 +56,17 @@ finally the order of the table.
 A local directory whose name contains `*`, `?`, or `[` cannot be mapped: it is read as a pattern, and
 this matcher has no escape character.
 
+### Organize servers in folders
+
+Set a profile's **Folder** to group it in the tool window; use `/` for nested folders, for example
+`prod/eu`. Right-click a folder for:
+
+- **Add Folder**: create a folder inside this one.
+- **Rename Folder**: rename it, keeping nested folders and profiles inside with it.
+- **Remove Folder**: delete it together with everything inside.
+
+A folder you opened stays open when a profile inside it is added, cloned, or removed.
+
 ## Upload files
 
 ### From the Project tool window
@@ -69,7 +80,7 @@ Choose a configured server profile from the submenu. Required remote directories
 
 ### Upload changed files
 
-In the **SFTP Uploader** tool window, select **Upload changed files**. The plugin prompts for a commit id: enter one to list the files changed in that commit, or leave it blank to use the current Git working tree. It then lets you choose a server and files, and uploads the selected items.
+In the **SFTP Uploader** tool window, select **Upload changed files**. The plugin prompts for a commit id: enter one to list the files changed in that commit, or leave it blank to use the current Git working tree. It then lets you choose a server and files, and uploads the selected items. The server selected in the tool window is preselected; pick another one from the list if needed.
 
 Files that do not match a mapping are disabled. When compiled Java uploads are enabled, Java files without a compiled class are also disabled.
 
@@ -107,7 +118,9 @@ You can use template parameters in actions. For example, `date -l ${option}` wil
 
 Only save and run commands you trust: actions execute on the remote server as the configured user.
 
-## Clone entries with the keyboard
+## Keyboard editing of entries
+
+### Clone with the editor's duplicate key
 
 Use the key the editor uses for "Duplicate Line or Selection": `Cmd+D` on macOS, `Ctrl+D` on Windows and
 Linux. It clones whatever is selected:
@@ -121,6 +134,18 @@ Linux. It clones whatever is selected:
    unique: `Deploy` -> `Deploy(1)`.
 
 The **Local** server entry and folders cannot be cloned - edit or rename them instead.
+
+### Remove with Delete
+
+`Delete` (or `Backspace`) removes what is selected, in both places:
+
+- **Server or folder**: in the tool window. A folder asks for confirmation and removes the folders and
+   servers inside it; the **Local** entry cannot be removed.
+- **Path mapping or action**: in the server dialog, every selected row of the table is removed. While
+   you are typing in a cell, the key belongs to the text field, so press it again after finishing the
+   edit to remove the row.
+
+Both tables also have the **Remove Mapping** and **Remove Action** buttons.
 
 ## Import and export
 
