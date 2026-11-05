@@ -35,7 +35,7 @@ dependencies {
 
 intellijPlatform {
     publishing {
-        token = System.getenv("JB_MARKETPLACE_TOKEN")
+        token = providers.environmentVariable("JB_MARKETPLACE_TOKEN")
     }
 
     // Plugin Marketplace downloads (incl. recommended IDEs for the verifier) can be blocked in

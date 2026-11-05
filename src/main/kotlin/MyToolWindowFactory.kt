@@ -12,8 +12,8 @@ import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.JBColor
-import com.intellij.ui.PopupHandler
 import com.intellij.ui.MouseDragHelper
+import com.intellij.ui.PopupHandler
 import com.intellij.ui.components.JBPasswordField
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextArea
@@ -25,23 +25,16 @@ import com.intellij.util.ui.FormBuilder
 import com.intellij.util.ui.UIUtil
 import org.kavo.uploader.actions.launchUploadChangedFiles
 import org.kavo.uploader.settings.*
-import org.kavo.uploader.transfer.*
-import org.kavo.uploader.ui.*
+import org.kavo.uploader.transfer.ProfileTransfer
+import org.kavo.uploader.ui.installCloneShortcut
+import org.kavo.uploader.ui.installTableShortcuts
 import org.kavo.uploader.upload.*
 import java.awt.*
-import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
-import java.awt.event.ActionEvent
-import java.awt.event.KeyEvent
-import java.awt.event.*
 import java.util.*
 import javax.swing.*
 import javax.swing.table.DefaultTableModel
-import javax.swing.tree.DefaultMutableTreeNode
-import javax.swing.tree.DefaultTreeCellRenderer
-import javax.swing.tree.DefaultTreeModel
-import javax.swing.tree.TreeNode
-import javax.swing.tree.TreePath
+import javax.swing.tree.*
 
 class MyToolWindowFactory : ToolWindowFactory {
     override fun shouldBeAvailable(project: Project) = true
@@ -583,7 +576,8 @@ private class ServerNode(
         }
 }
 
-private class FolderDeleteDialog(private val project: Project, private val folder: String) : DialogWrapper(project, true) {
+private class FolderDeleteDialog(private val project: Project, private val folder: String) :
+    DialogWrapper(project, true) {
     init {
         title = MyMessageBundle.message("folder.remove")
         init()
@@ -634,24 +628,17 @@ private class ServerProfileDialog(private val project: Project, private val exis
     private val useRsyncCheckbox = JCheckBox(MyMessageBundle.message("server.useRsync")).apply {
         isSelected = existing?.useRsync ?: SftpSettings.getInstance().newServerUseRsync
     }
-    private val fnPatternsModel = object : DefaultTableModel(
+    private val mappingsModel = object : DefaultTableModel(
         arrayOf(
-            MyMessageBundle.message("fnmatch.pattern"),
-            MyMessageBundle.message("fnmatch.remote"),
+            MyMessageBundle.message("mapping.local"),
+            MyMessageBundle.message("mapping.remote"),
         ),
         0,
     ) {
         override fun isCellEditable(row: Int, column: Int) = true
     }
-    private val fnPatternsTable = JBTable(fnPatternsModel).apply {
-        installTableShortcuts(this, fnPatternsModel) { rows ->
-            rows.map { row -> mappingCells(fnPatternsModel, row) }
-        }
-    }
-    private val mappingsModel = object : DefaultTableModel(arrayOf("Project-relative path", "Remote directory"), 0) {
-        override fun isCellEditable(row: Int, column: Int) = true
-    }
     private val mappingsTable = JBTable(mappingsModel).apply {
+        toolTipText = MyMessageBundle.message("server.mappings.tooltip")
         installTableShortcuts(this, mappingsModel) { rows ->
             rows.map { row -> mappingCells(mappingsModel, row) }
         }
@@ -678,10 +665,8 @@ private class ServerProfileDialog(private val project: Project, private val exis
         title =
             if (existing == null) MyMessageBundle.message("server.dialog.add") else MyMessageBundle.message("server.dialog.edit")
         if (existing == null) {
-            fnPatternsModel.addRow(arrayOf("", ""))
             mappingsModel.addRow(arrayOf("", ""))
         } else {
-            existing.fnPatterns.forEach { fnPatternsModel.addRow(arrayOf(it.localPath, it.remotePath)) }
             existing.mappings.forEach { mappingsModel.addRow(arrayOf(it.localPath, it.remotePath)) }
             existing.actions.forEach { actionsModel.addRow(arrayOf(it.name, it.command, it.id)) }
         }
@@ -689,38 +674,8 @@ private class ServerProfileDialog(private val project: Project, private val exis
     }
 
     override fun createCenterPanel(): JComponent {
-        val fnPanel = JPanel(BorderLayout()).apply {
-            add(JBScrollPane(fnPatternsTable), BorderLayout.CENTER)
-            add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
-                add(JButton(MyMessageBundle.message("fnmatch.add")).apply {
-                    addActionListener { fnPatternsModel.addRow(arrayOf("", "")) }
-                })
-                add(JButton(MyMessageBundle.message("fnmatch.remove")).apply {
-                    addActionListener {
-                        fnPatternsTable.selectedRows.sortedDescending().forEach(fnPatternsModel::removeRow)
-                    }
-                })
-                add(JButton(MyMessageBundle.message("fnmatch.copy")).apply {
-                    addActionListener {
-                        stopEditing()
-                        val patterns = (0 until fnPatternsModel.rowCount).map { row ->
-                            PathMapping(
-                                localPath = fnPatternsModel.getValueAt(row, 0)?.toString().orEmpty().trim(),
-                                remotePath = fnPatternsModel.getValueAt(row, 1)?.toString().orEmpty().trim(),
-                            )
-                        }.filterNot { it.localPath.isBlank() && it.remotePath.isBlank() }
-                        val text = ProfileTransfer.encodeMappings(patterns)
-                        copyToClipboard(text)
-                        UploaderNotifications.info(project, MyMessageBundle.message("fnmatch.copied", patterns.size))
-                    }
-                })
-                add(JButton(MyMessageBundle.message("fnmatch.import")).apply {
-                    addActionListener { importFnPatterns() }
-                })
-            }, BorderLayout.SOUTH)
-        }
-        fnPanel.preferredSize = Dimension(680, 140)
         val mappingPanel = JPanel(BorderLayout()).apply {
+            add(JLabel(MyMessageBundle.message("server.mappings.hint")), BorderLayout.NORTH)
             add(JBScrollPane(mappingsTable), BorderLayout.CENTER)
             add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
                 add(JButton(MyMessageBundle.message("mapping.add")).apply {
@@ -750,7 +705,7 @@ private class ServerProfileDialog(private val project: Project, private val exis
                 })
             }, BorderLayout.SOUTH)
         }
-        mappingPanel.preferredSize = Dimension(680, 220)
+        mappingPanel.preferredSize = Dimension(680, 300)
         val actionsPanel = JPanel(BorderLayout()).apply {
             add(JBScrollPane(actionsTable), BorderLayout.CENTER)
             add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
@@ -808,7 +763,6 @@ private class ServerProfileDialog(private val project: Project, private val exis
                 .addSeparator()
         }
         builder
-            .addLabeledComponentFillVertically(MyMessageBundle.message("server.fnPatterns"), fnPanel)
             .addLabeledComponentFillVertically(MyMessageBundle.message("server.mappings"), mappingPanel)
         if (!isLocal) {
             builder.addLabeledComponentFillVertically(MyMessageBundle.message("server.actions"), actionsPanel)
@@ -857,29 +811,6 @@ private class ServerProfileDialog(private val project: Project, private val exis
             }
         }
 
-        val patterns = mutableSetOf<String>()
-        fnPatterns().forEach { entry ->
-            val pattern = PathMappingResolver.normalizeLocal(entry.localPath)
-            if (pattern.split('/').any { it == ".." }) {
-                return ValidationInfo(MyMessageBundle.message("validation.local.path"), fnPatternsTable)
-            }
-            if (pattern.isEmpty()) {
-                return ValidationInfo(MyMessageBundle.message("validation.fnmatch.blank"), fnPatternsTable)
-            }
-            if (!patterns.add(pattern)) {
-                return ValidationInfo(MyMessageBundle.message("validation.fnmatch.duplicate", pattern), fnPatternsTable)
-            }
-            if (!isLocal) {
-                try {
-                    if (!PathMappingResolver.normalizeRemote(entry.remotePath).startsWith("/")) {
-                        return ValidationInfo(MyMessageBundle.message("validation.remote.absolute"), fnPatternsTable)
-                    }
-                } catch (_: IllegalArgumentException) {
-                    return ValidationInfo(MyMessageBundle.message("validation.remote.path"), fnPatternsTable)
-                }
-            }
-        }
-
         if (isLocal) {
             if (basePathField.text.trim().split('/').any { it == ".." }) {
                 return ValidationInfo(MyMessageBundle.message("validation.local.path"), basePathField)
@@ -924,7 +855,6 @@ private class ServerProfileDialog(private val project: Project, private val exis
             type = if (isLocal) ServerType.LOCAL else ServerType.SFTP,
             basePath = if (isLocal) basePathField.text.trim() else "",
             mappings = mappings().toMutableList(),
-            fnPatterns = fnPatterns().toMutableList(),
             actions = if (isLocal) mutableListOf() else actions().toMutableList(),
         )
     }
@@ -947,18 +877,6 @@ private class ServerProfileDialog(private val project: Project, private val exis
         UploaderNotifications.info(project, MyMessageBundle.message("mapping.imported", mappings.size))
     }
 
-    private fun importFnPatterns() {
-        val dialog = ImportLinesDialog(
-            project,
-            MyMessageBundle.message("fnmatch.import"),
-            MyMessageBundle.message("import.fnmatch.hint")
-        )
-        if (!dialog.showAndGet()) return
-        val patterns = ProfileTransfer.decodeMappings(dialog.text())
-        patterns.forEach { fnPatternsModel.addRow(arrayOf(it.localPath, it.remotePath)) }
-        UploaderNotifications.info(project, MyMessageBundle.message("fnmatch.imported", patterns.size))
-    }
-
     private fun importActions() {
         val dialog = ImportLinesDialog(
             project,
@@ -973,10 +891,6 @@ private class ServerProfileDialog(private val project: Project, private val exis
 
     private fun mappings(): List<PathMapping> =
         (0 until mappingsModel.rowCount).map { row -> pathMapping(mappingsModel, row) }
-            .filterNot { it.localPath.isBlank() && it.remotePath.isBlank() }
-
-    private fun fnPatterns(): List<PathMapping> =
-        (0 until fnPatternsModel.rowCount).map { row -> pathMapping(fnPatternsModel, row) }
             .filterNot { it.localPath.isBlank() && it.remotePath.isBlank() }
 
     private fun pathMapping(model: DefaultTableModel, row: Int): PathMapping =
@@ -1005,7 +919,6 @@ private class ServerProfileDialog(private val project: Project, private val exis
         arrayOf(action.name, action.command, action.id)
 
     private fun stopEditing() {
-        if (fnPatternsTable.isEditing) fnPatternsTable.cellEditor.stopCellEditing()
         if (mappingsTable.isEditing) mappingsTable.cellEditor.stopCellEditing()
         if (actionsTable.isEditing) actionsTable.cellEditor.stopCellEditing()
     }

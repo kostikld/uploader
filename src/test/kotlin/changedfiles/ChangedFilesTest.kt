@@ -59,7 +59,7 @@ class ChangedFilesTest {
         val path = Paths.get("/project/docs/guide.html")
         val row = buildUploadRows(listOf(path), emptyMap(), true, projectRoot).single()
         assertFalse(rowIsEnabled(row, projectRoot, mappings))
-        assertTrue(rowIsEnabled(row, projectRoot, mappings, listOf(PathMapping("docs/**.html", "/remote/docs"))))
+        assertTrue(rowIsEnabled(row, projectRoot, mappings + PathMapping("docs/**.html", "/remote/docs")))
     }
 
     @Test

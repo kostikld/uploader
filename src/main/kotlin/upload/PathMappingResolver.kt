@@ -8,9 +8,8 @@ object PathMappingResolver {
         projectRoot: Path,
         file: Path,
         mappings: List<PathMapping>,
-        fnPatterns: List<PathMapping> = emptyList(),
     ): String? {
-        val match = resolveMatch(projectRoot, file, mappings, fnPatterns) ?: return null
+        val match = resolveMatch(projectRoot, file, mappings) ?: return null
         val (mapping, remainder) = match
         return joinRemote(mapping.remotePath, remainder)
     }
@@ -20,9 +19,8 @@ object PathMappingResolver {
         file: Path,
         mappings: List<PathMapping>,
         basePath: String,
-        fnPatterns: List<PathMapping> = emptyList(),
     ): String? {
-        val match = resolveMatch(projectRoot, file, mappings, fnPatterns) ?: return null
+        val match = resolveMatch(projectRoot, file, mappings) ?: return null
         val (mapping, remainder) = match
         val remote = normalizeRemote(mapping.remotePath)
         val relative = normalizeLocal(remainder)
@@ -35,21 +33,23 @@ object PathMappingResolver {
     }
 
     /**
-     * Finds the mapping that owns a file. Direct mappings win over fnmatch patterns; the file keeps
-     * everything below the matched local root (or below the pattern's literal prefix).
+     * Finds the mapping that owns a file. A row whose local path has no wildcard is a direct mapping and
+     * wins over a pattern row; the file keeps everything below the matched local root (or below the
+     * pattern's literal prefix).
      */
     private fun resolveMatch(
         projectRoot: Path,
         file: Path,
         mappings: List<PathMapping>,
-        fnPatterns: List<PathMapping>,
     ): Pair<PathMapping, String>? {
         val root = projectRoot.toAbsolutePath().normalize()
         val normalizedFile = file.toAbsolutePath().normalize()
         if (!normalizedFile.startsWith(root)) return null
 
         val projectRelative = normalizeLocal(root.relativize(normalizedFile).toString())
-        val match = directMatch(mappings, projectRelative) ?: fnMatch(fnPatterns, projectRelative) ?: return null
+        val (direct, patterns) =
+            mappings.partition { mapping -> !FnMatch.isPattern(normalizeLocal(mapping.localPath)) }
+        val match = directMatch(direct, projectRelative) ?: fnMatch(patterns, projectRelative) ?: return null
         val (mapping, localRoot) = match
         val remainder = if (localRoot.isEmpty()) {
             projectRelative

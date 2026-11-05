@@ -14,7 +14,8 @@
          Guidelines: https://plugins.jetbrains.com/docs/marketplace/best-practices-for-listing.html#plugin-description -->
     <description><![CDATA[
         Upload project files to configured remote servers over SFTP.
-        Shared server profiles support hierarchical project-to-remote path mappings.
+        Shared server profiles support hierarchical project-to-remote path mappings, where a row
+        selects files either by a local directory or by an fnmatch pattern.
         ]]></description>
 
     <!-- Product and plugin compatibility requirements.

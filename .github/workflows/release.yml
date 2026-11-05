@@ -1,0 +1,204 @@
+name: Release
+
+# `master` is merge-only, so a release is a two-phase flow, and the phase comes from the shape of the
+# merge - never from a commit message and never from a tag:
+#
+#   an MR whose branch is NOT `release/*` is merged -> the version is bumped on a new `release/<version>`
+#                                                   branch and a bump PR is opened; master is unchanged
+#   that bump PR is merged                          -> the version in master is uploaded to the JetBrains
+#                                                   Marketplace and the stamped CHANGELOG.md section is
+#                                                   committed back to master
+#
+# So one release costs two merges: the second one is the publish. `workflow_dispatch` runs either phase by
+# hand (mode: prepare | publish).
+#
+# `CHANGELOG.md` is never written by a workflow step: `patchChangelog` is a dependency of `publishPlugin`
+# (org/jetbrains/intellij/platform/gradle/plugins/changelog.kt:28-30) and it turns `## Unreleased` into
+# `## <version> - <date>` with the plugin's default header `${version} - ${date()}`; the step below only
+# commits what Gradle produced. The uploaded change notes come from that same stamped section
+# (changelog.kt:57-58 -> getOrNull(version) ?: getUnreleased()).
+#
+# The heading in the committed CHANGELOG.md doubles as the record that a version was already published,
+# which is what the duplicate-upload guard reads: the Marketplace refuses an upload of a version it has
+# already, and an interrupted publish (uploaded, commit to master rejected) would otherwise retry it.
+# An empty `## Unreleased` section makes patchChangelog skip itself through StopActionException
+# (changelog/tasks/PatchChangelogTask.kt:118-121) without failing the build: such a release ships with
+# empty change notes, gets no heading, and the last step warns about it.
+#
+# Requires the `JB_MARKETPLACE_TOKEN` repository secret: build.gradle.kts reads that exact variable name
+# as the intellijPlatform.publishing token. Committing to master from the publish phase needs the GitHub
+# Actions app (id 15368) in the master ruleset bypass list; pushes made by that app never start another
+# run of this workflow, so the commit cannot loop.
+
+on:
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "prepare = bump gradle.properties and open the bump PR; publish = upload the version in master"
+        required: true
+        default: prepare
+        options: [prepare, publish]
+
+permissions:
+  contents: write # commit to master, push the release branch
+  pull-requests: write # open/update the bump PR
+
+jobs:
+  release:
+    # A closed PR that was not merged has nothing to release.
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The merged state of master, not the PR head: the release is what master ended up with.
+          ref: ${{ github.event.pull_request.merge_commit_sha || github.base_ref || 'master' }}
+          fetch-depth: 0
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: oracle
+          # IntelliJ 2023.3 -> Java 17. The IntelliJ Platform Gradle Plugin pins the compile
+          # toolchain to that regardless of the runner JDK; this only needs to run Gradle 9.6.1.
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v6
+
+      - name: Decide the phase
+        id: decide
+        env:
+          REQUESTED_MODE: ${{ inputs.mode }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          v=$(grep -m1 '^version=' gradle.properties | cut -d= -f2)
+          printf '%s' "$v" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' || {
+            echo "::error::version '$v' is not MAJOR.MINOR.PATCH"
+            exit 1
+          }
+          requested=${REQUESTED_MODE:-}
+          if [ -n "$requested" ]; then
+            mode=$requested
+          else
+            # The bump PR is created from `release/<version>`, so merging such a branch is the publish.
+            case "${HEAD_REF:-}" in
+              release/*) mode=publish ;;
+              *) mode=prepare ;;
+            esac
+          fi
+          {
+            echo "version in gradle.properties: $v"
+            echo "merged from: ${HEAD_REF:-workflow_dispatch}"
+            echo "phase: $mode"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "phase=$mode" >> "$GITHUB_OUTPUT"
+          echo "PLUGIN_VERSION=$v" >> "$GITHUB_ENV"
+
+      - name: Test
+        run: ./gradlew test --no-daemon
+
+      - name: Release notes present?
+        if: steps.decide.outputs.phase == 'prepare'
+        run: |
+          set -euo pipefail
+          notes=$(awk '/^## Unreleased[[:space:]]*$/{s=1;next} s&&/^## /{exit} s&&NF{n++} END{print n+0}' CHANGELOG.md)
+          echo "Unreleased bullet lines: $notes" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$notes" -eq 0 ]; then
+            echo "No release notes: this PR only bumps the version, and the Marketplace entry gets empty change notes." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Bump patch version
+        if: steps.decide.outputs.phase == 'prepare'
+        run: |
+          set -euo pipefail
+          # Another MR may have merged while this run was building: branch off current master, and read
+          # the version from it, so two runs cannot compute the same bump.
+          git fetch --quiet origin master:refs/remotes/origin/master
+          git reset --hard refs/remotes/origin/master
+          current=$(grep -m1 '^version=' gradle.properties | cut -d= -f2)
+          IFS=. read -r major minor patch <<< "$current"
+          new="$major.$minor.$((patch + 1))"
+          # No `sed -i`: that flag needs an extra argument on BSD/macOS, and this form behaves
+          # identically on a local run and on the runner.
+          sed "s/^version=.*/version=$new/" gradle.properties > gradle.properties.tmp
+          mv gradle.properties.tmp gradle.properties
+          echo "version: $current -> $new" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "NEW_VERSION=$new" >> "$GITHUB_ENV"
+
+      - name: Open the bump PR
+        if: steps.decide.outputs.phase == 'prepare'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          branch="release/${NEW_VERSION}"
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git switch -c "$branch"
+          # CHANGELOG.md is deliberately not staged: Gradle stamps it in the publish phase.
+          git add gradle.properties
+          if git diff --cached --quiet; then
+            echo "Nothing to release: gradle.properties was not changed." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git commit -m "chore: bump version to ${NEW_VERSION}"
+          # The release branch is bot-owned, so a newer run replaces the previous bump commit
+          # instead of stacking another one on top of it.
+          git push --force origin "HEAD:refs/heads/${branch}"
+          title="chore: bump version to ${NEW_VERSION}"
+          body="Bumps \`version\` in gradle.properties. Merging this PR is the publish step: v${NEW_VERSION} is uploaded to the JetBrains Marketplace and the stamped CHANGELOG.md section is committed to master."
+          existing=$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh pr edit "$existing" --title "$title" --body "$body"
+          else
+            gh pr create --base master --head "$branch" --title "$title" --body "$body"
+          fi
+          echo "Bump PR ready for **v${NEW_VERSION}**." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish, then commit the stamped changelog to master
+        if: steps.decide.outputs.phase == 'publish'
+        env:
+          JB_MARKETPLACE_TOKEN: ${{ secrets.JB_MARKETPLACE_TOKEN }}
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin master:refs/remotes/origin/master
+          git rebase refs/remotes/origin/master
+          v=$(grep -m1 '^version=' gradle.properties | cut -d= -f2)
+          echo "publishing v$v (master tip $(git rev-parse --short HEAD))" | tee -a "$GITHUB_STEP_SUMMARY"
+          # The heading committed by an earlier publish is the record that a version is already uploaded.
+          if grep -q "^## $v - " CHANGELOG.md; then
+            echo "CHANGELOG.md already has a section for v$v: already published, skipping the upload." | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            set +e
+            out=$(./gradlew publishPlugin --no-daemon 2>&1)
+            rc=$?
+            set -e
+            printf '%s\n' "$out"
+            if [ $rc -ne 0 ] && printf '%s' "$out" | grep -qiE 'exists already|already exists|same version'; then
+              echo "v$v is already on the Marketplace: skipping the upload." | tee -a "$GITHUB_STEP_SUMMARY"
+            elif [ $rc -ne 0 ]; then
+              printf '%s\n' "$out" >&2
+              exit 1
+            fi
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          # patchChangelog ran as a dependency of publishPlugin and stamped the file in the checkout.
+          if ! git diff --quiet -- CHANGELOG.md; then
+            git add CHANGELOG.md
+            git commit -m "docs: changelog for v$v"
+            git push origin "HEAD:refs/heads/master"
+          else
+            echo "CHANGELOG.md was not stamped: patchChangelog skipped (empty release notes) or the section already existed." | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Confirm the changelog has a heading for the published version
+        if: steps.decide.outputs.phase == 'publish'
+        run: |
+          set -euo pipefail
+          v=$(grep -m1 '^version=' gradle.properties | cut -d= -f2)
+          echo "Published version: $v" | tee -a "$GITHUB_STEP_SUMMARY"
+          grep -q "^## $v - " CHANGELOG.md \
+            || echo "::warning::CHANGELOG.md has no heading for $v - the release note is missing or patchChangelog was skipped" >> "$GITHUB_STEP_SUMMARY"

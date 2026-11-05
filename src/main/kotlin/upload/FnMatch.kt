@@ -23,6 +23,13 @@ object FnMatch {
             .takeWhile { segment -> segment.none { char -> isWildcard(char) } }
             .joinToString("/")
 
+    /**
+     * Whether a configured local path selects files by pattern. A path with a wildcard token is
+     * matched with fnmatch; one without it is a direct path prefix.
+     */
+    fun isPattern(path: String): Boolean =
+        path.any { char -> isWildcard(char) }
+
     /** Number of wildcard tokens in the pattern; fewer wildcards means a more concrete pattern. */
     fun wildcardCount(pattern: String): Int {
         var count = 0

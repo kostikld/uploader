@@ -59,4 +59,13 @@ class FnMatchTest {
         assertEquals(0, FnMatch.wildcardCount("src/web/app.js"))
         assertEquals(1, FnMatch.wildcardCount("file[0-9].txt"))
     }
+
+    @Test
+    fun `a local path with a wildcard is read as a pattern`() {
+        assertTrue(FnMatch.isPattern("src/web/**"))
+        assertTrue(FnMatch.isPattern("docs/?.html"))
+        assertTrue(FnMatch.isPattern("src/[draft]"))
+        assertFalse(FnMatch.isPattern("src/web/app.js"))
+        assertFalse(FnMatch.isPattern(""))
+    }
 }

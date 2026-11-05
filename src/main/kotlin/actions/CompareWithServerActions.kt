@@ -118,7 +118,7 @@ private class CompareWithProfileAction(
                         files
                     }
                     val pairs = expanded.mapNotNull { file ->
-                        PathMappingResolver.resolve(projectRoot, file, profile.mappings, profile.fnPatterns)?.let { file to it }
+                        PathMappingResolver.resolve(projectRoot, file, profile.mappings)?.let { file to it }
                     }
                     when {
                         pairs.isNotEmpty() -> compareFiles(project, pairs, profile, vFiles, missingCompiled, indicator)

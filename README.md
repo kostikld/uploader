@@ -1,6 +1,6 @@
 # SFTP Uploader
 
-SFTP Uploader is an IntelliJ IDEA plugin for uploading project files to remote servers over SFTP or `rsync`. It supports reusable server profiles, project-to-server path mappings, remote file comparison, and running saved commands on a server.
+SFTP Uploader is an IntelliJ IDEA plugin for uploading project files to remote servers over SFTP or `rsync`. It supports reusable server profiles, project-to-server path mappings - a row can select files by directory or by an fnmatch pattern - remote file comparison, and running saved commands on a server.
 
 ## Requirements
 
@@ -20,15 +20,14 @@ Passwords are stored in the IntelliJ Password Safe, not in the project configura
 2. Select **Add**.
 3. Enter a profile name, host, port, username, and password.
 4. Add one or more path mappings:
-   - **Project-relative path**: the local directory, relative to the project root.
+   - **Local path or pattern**: the local directory, relative to the project root, or a pattern
+     that selects files by name.
    - **Remote directory**: the corresponding absolute directory on the server.
-
-   Optionally add fnmatch patterns (see below) to select files by name instead of by directory.
 5. Save the profile. Use **Test Connection** from the profile's context menu to verify it.
 
 For example, this mapping uploads `src/main/resources/app.yml` to `/var/www/app/src/main/resources/app.yml`:
 
-| Project-relative path | Remote directory |
+| Local path or pattern | Remote directory |
 | --- | --- |
 | `/` | `/var/www/app` |
 
@@ -37,21 +36,25 @@ When mappings overlap, the most specific local path is used.
 ### Fnmatch patterns
 
 Files that are scattered over the project are often easier to select with a pattern than with a
-directory. Add rows to the **Fnmatch patterns** table, shown above the path mappings:
+directory, so the same table also takes patterns:
 
-| Pattern | Remote directory |
+| Local path or pattern | Remote directory |
 | --- | --- |
 | `src/web/**` | `/var/www/static` |
 
-Patterns are matched against the project-relative path of a file: `*` matches any characters
-(including `/`), `?` matches one character, and `[a-z]` (or `[!a-z]` for the opposite) matches a
-character class. Matching is case-sensitive. Everything below the pattern's wildcard-free prefix is
-kept, the same way path mappings keep the path below their local directory: with the mapping above,
-`src/web/js/app.js` is uploaded to `/var/www/static/js/app.js`.
+A row is read as a pattern when its local side contains `*`, `?`, or `[`. Patterns are matched against
+the project-relative path of a file: `*` matches any characters (including `/`), `?` matches one
+character, and `[a-z]` (or `[!a-z]` for the opposite) matches a character class. Matching is
+case-sensitive. Everything below the pattern's wildcard-free prefix is kept, the same way path mappings
+keep the path below their local directory: with the mapping above, `src/web/js/app.js` is uploaded to
+`/var/www/static/js/app.js`.
 
-A path mapping always wins over a pattern for the same file. When several patterns match a file, the
+A direct path always wins over a pattern for the same file. When several patterns match a file, the
 most concrete one is used: the longest wildcard-free prefix first, then the fewest wildcards, and
 finally the order of the table.
+
+A local directory whose name contains `*`, `?`, or `[` cannot be mapped: it is read as a pattern, and
+this matcher has no escape character.
 
 ## Upload files
 
@@ -68,7 +71,7 @@ Choose a configured server profile from the submenu. Required remote directories
 
 In the **SFTP Uploader** tool window, select **Upload changed files**. The plugin prompts for a commit id: enter one to list the files changed in that commit, or leave it blank to use the current Git working tree. It then lets you choose a server and files, and uploads the selected items.
 
-Files that do not match a path mapping or an fnmatch pattern are disabled. When compiled Java uploads are enabled, Java files without a compiled class are also disabled.
+Files that do not match a mapping are disabled. When compiled Java uploads are enabled, Java files without a compiled class are also disabled.
 
 ## Compare with the server
 
@@ -110,10 +113,10 @@ Use the key the editor uses for "Duplicate Line or Selection": `Cmd+D` on macOS,
 Linux. It clones whatever is selected:
 
 - **Server**: select it in the tool window and press the key. The copy keeps the host, port, username,
-   rsync setting, folder, path mappings, fnmatch patterns and actions, gets a new id, and the stored
+   rsync setting, folder, path mappings and actions, gets a new id, and the stored
    password is copied to it. Its name continues the sequence: `serve` -> `serve(1)` -> `serve(2)`.
-- **Path mapping** and **fnmatch pattern**: in the server dialog, copies of the selected rows are inserted
-   below the selection. Local paths and patterns must stay unique, so edit a copy before saving.
+- **Path mapping**: in the server dialog, copies of the selected rows are inserted below the selection.
+   Local paths and patterns must stay unique, so edit a copy before saving.
 - **Action**: the copy is inserted below with a new id and a sequenced name, since action names must be
    unique: `Deploy` -> `Deploy(1)`.
 
@@ -121,10 +124,9 @@ The **Local** server entry and folders cannot be cloned - edit or rename them in
 
 ## Import and export
 
-Path mappings, fnmatch patterns and server actions can be copied to the clipboard and imported into another profile.
+Path mappings and server actions can be copied to the clipboard and imported into another profile.
 
-- Mapping format: `local path -> remote path`
-- Pattern format: `pattern -> remote path`
+- Mapping format: `local path or pattern -> remote path`
 - Action format: `name -> command`
 
 ## Build from source
