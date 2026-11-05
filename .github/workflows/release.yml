@@ -43,7 +43,7 @@ on:
 
 permissions:
   contents: write # commit to master, push the release branch
-  pulls: write # open/update the bump PR
+  pull-requests: write # open/update the bump PR
 
 jobs:
   release:
