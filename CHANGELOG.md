@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+- Path mappings and fnmatch patterns are configured in one table: a row whose local side contains `*`,
+   `?`, or `[` selects files by pattern, and the section label says patterns are supported. The rule
+   - direct paths win over patterns, then the most concrete pattern wins - is shown above the table and
+   in its tooltip. Profiles saved earlier have their separate fnmatch rows moved into this list, above
+   the direct mappings, when the settings are loaded.
+
 ## 1.0.12 - 2026-11-03
 
 - Path mappings for files selected by fnmatch pattern (`*`, `?`, `[a-z]`), configured in a section above the

@@ -83,8 +83,10 @@ class PathMappingResolverTest {
         val result = PathMappingResolver.resolve(
             project,
             project.resolve("target/classes/example.txt"),
-            listOf(PathMapping("target/classes", "/remote/classes")),
-            listOf(PathMapping("target/**", "/remote/fallback")),
+            listOf(
+                PathMapping("target/**", "/remote/fallback"),
+                PathMapping("target/classes", "/remote/classes"),
+            ),
         )
 
         assertEquals("/remote/classes/example.txt", result)
@@ -95,8 +97,10 @@ class PathMappingResolverTest {
         val result = PathMappingResolver.resolve(
             project,
             project.resolve("src/main/web/app.js"),
-            listOf(PathMapping("target/classes", "/remote/classes")),
-            listOf(PathMapping("src/**", "/remote/web")),
+            listOf(
+                PathMapping("target/classes", "/remote/classes"),
+                PathMapping("src/**", "/remote/web"),
+            ),
         )
 
         assertEquals("/remote/web/main/web/app.js", result)
@@ -107,7 +111,6 @@ class PathMappingResolverTest {
         val result = PathMappingResolver.resolve(
             project,
             project.resolve("target/classes/com/example/ui/View.js"),
-            emptyList(),
             listOf(PathMapping("target/classes/**/ui/*.js", "/remote/WEB-INF/classes")),
         )
 
@@ -119,7 +122,6 @@ class PathMappingResolverTest {
         val result = PathMappingResolver.resolve(
             project,
             project.resolve("src/web/app.js"),
-            emptyList(),
             listOf(
                 PathMapping("**/*.js", "/remote/any"),
                 PathMapping("src/web/**.js", "/remote/web"),
@@ -134,7 +136,6 @@ class PathMappingResolverTest {
         val result = PathMappingResolver.resolve(
             project,
             project.resolve("src/a.js"),
-            emptyList(),
             listOf(
                 PathMapping("src/*.js", "/remote/first"),
                 PathMapping("src/?.js", "/remote/second"),
@@ -145,13 +146,34 @@ class PathMappingResolverTest {
     }
 
     @Test
+    fun `pattern rows never match by path prefix`() {
+        val result = PathMappingResolver.resolve(
+            project,
+            project.resolve("src-old/main/app.js"),
+            listOf(PathMapping("src/**", "/remote/web")),
+        )
+
+        assertNull(result)
+    }
+
+    @Test
+    fun `a local path with brackets is read as a pattern`() {
+        val result = PathMappingResolver.resolve(
+            project,
+            project.resolve("src/[draft]/a.md"),
+            listOf(PathMapping("src/[draft]", "/remote/draft")),
+        )
+
+        assertNull(result)
+    }
+
+    @Test
     fun `fnmatch pattern resolves a local path`() {
         val result = PathMappingResolver.resolveLocal(
             project,
             project.resolve("docs/guide.html"),
-            emptyList(),
-            "/local",
             listOf(PathMapping("docs/**.html", "/docs")),
+            "/local",
         )
 
         assertEquals("/local/docs/guide.html", result)

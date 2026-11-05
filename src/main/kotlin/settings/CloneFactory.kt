@@ -39,7 +39,6 @@ fun cloneProfile(profile: ServerProfile, takenNames: Collection<String>): Server
         type = profile.type,
         basePath = profile.basePath,
         mappings = profile.mappings.map { cloneMapping(it) }.toMutableList(),
-        fnPatterns = profile.fnPatterns.map { cloneMapping(it) }.toMutableList(),
         actions = profile.actions.map { cloneAction(it) }.toMutableList(),
     )
 

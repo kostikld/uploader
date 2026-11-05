@@ -54,18 +54,20 @@ class CloneFactoryTest {
     @Test
     fun `profile clone does not share its entries with the source`() {
         val source = ServerProfile(
-            mappings = mutableListOf(PathMapping("src", "/remote/src")),
-            fnPatterns = mutableListOf(PathMapping("docs/**", "/remote/docs")),
+            mappings = mutableListOf(
+                PathMapping("src", "/remote/src"),
+                PathMapping("docs/**", "/remote/docs"),
+            ),
             actions = mutableListOf(ServerAction(id = "restart", name = "Restart", command = "systemctl restart app")),
         )
 
         val clone = cloneProfile(source, listOf(source.name))
         clone.mappings.first().localPath = "target"
-        clone.fnPatterns.first().remotePath = "/other/docs"
+        clone.mappings.last().remotePath = "/other/docs"
         clone.actions.first().command = "uptime"
 
-        assertEquals(listOf("src"), source.mappings.map { it.localPath })
-        assertEquals(listOf("/remote/docs"), source.fnPatterns.map { it.remotePath })
+        assertEquals(listOf("src", "docs/**"), source.mappings.map { it.localPath })
+        assertEquals(listOf("/remote/src", "/remote/docs"), source.mappings.map { it.remotePath })
         assertEquals(listOf("systemctl restart app"), source.actions.map { it.command })
     }
 

@@ -43,13 +43,11 @@ fun rowIsEnabled(
     row: UploadRow,
     projectRoot: Path,
     mappings: List<PathMapping>,
-    fnPatterns: List<PathMapping> = emptyList(),
 ): Boolean {
     if (row.missingClass) return false
     return PathMappingResolver.resolve(
         projectRoot.toAbsolutePath().normalize(),
         row.uploadPath,
         mappings,
-        fnPatterns,
     ) != null
 }

@@ -34,7 +34,6 @@ class ChangedFilesDialog(
 ) : DialogWrapper(project, true) {
     private var server: ServerProfile? = null
     private var mappings: List<PathMapping> = emptyList()
-    private var fnPatterns: List<PathMapping> = emptyList()
     private val checks: MutableList<JCheckBox> = mutableListOf()
     private var result: List<UploadRow> = emptyList()
 
@@ -69,7 +68,6 @@ class ChangedFilesDialog(
 
         if (data.servers.isNotEmpty()) server = data.servers.first()
         mappings = server?.mappings.orEmpty()
-        fnPatterns = server?.fnPatterns.orEmpty()
 
         serverButton.text = server?.name.orEmpty()
         serverButton.addActionListener {
@@ -79,7 +77,6 @@ class ChangedFilesDialog(
                 .setItemChosenCallback { next ->
                     server = next
                     mappings = next?.mappings.orEmpty()
-                    fnPatterns = next?.fnPatterns.orEmpty()
                     serverButton.text = next?.name.orEmpty()
                     applyState()
                 }
@@ -104,7 +101,7 @@ class ChangedFilesDialog(
     override fun doOKAction() {
         result = data.rows.filterIndexed { index, uploadRow ->
             checks.getOrNull(index)?.isSelected == true &&
-                    rowIsEnabled(uploadRow, data.projectRoot, mappings, fnPatterns)
+                    rowIsEnabled(uploadRow, data.projectRoot, mappings)
         }
         super.doOKAction()
     }
@@ -129,7 +126,7 @@ class ChangedFilesDialog(
         archiveNameField.isEnabled = local && zipCheckbox.isSelected
         data.rows.forEachIndexed { index, uploadRow ->
             val check = checks[index]
-            val enabled = rowIsEnabled(uploadRow, data.projectRoot, mappings, fnPatterns)
+            val enabled = rowIsEnabled(uploadRow, data.projectRoot, mappings)
             check.isEnabled = enabled
             check.isSelected = enabled
             check.toolTipText =

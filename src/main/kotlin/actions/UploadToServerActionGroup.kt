@@ -144,7 +144,7 @@ internal fun resolveRequests(
     val projectRoot = Paths.get(basePath)
     val expanded = ClassFileExpander.expand(files, SftpSettings.getInstance().withInnerClasses)
     val requests = expanded.mapNotNull { file ->
-        val remote = PathMappingResolver.resolve(projectRoot, file, profile.mappings, profile.fnPatterns) ?: return@mapNotNull null
+        val remote = PathMappingResolver.resolve(projectRoot, file, profile.mappings) ?: return@mapNotNull null
         UploadRequest(file, remote)
       }
     return requests.ifEmpty { null }

@@ -28,15 +28,16 @@ class ServerProfileTest {
     }
 
     @Test
-    fun `profile keeps fnmatch patterns apart from direct mappings`() {
+    fun `profile keeps direct paths and fnmatch patterns in one list`() {
         val profile = ServerProfile(
-            mappings = mutableListOf(PathMapping("src", "/remote/src")),
-            fnPatterns = mutableListOf(PathMapping("docs/**.html", "/remote/docs")),
+            mappings = mutableListOf(
+                PathMapping("docs/**.html", "/remote/docs"),
+                PathMapping("src", "/remote/src"),
+            ),
         )
 
-        assertEquals(listOf("src"), profile.mappings.map { it.localPath })
-        assertEquals(listOf("docs/**.html"), profile.fnPatterns.map { it.localPath })
-        assertTrue(ServerProfile().fnPatterns.isEmpty())
+        assertEquals(listOf("docs/**.html", "src"), profile.mappings.map { it.localPath })
+        assertTrue(ServerProfile().mappings.isEmpty())
     }
 
     @Test

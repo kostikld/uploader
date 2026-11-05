@@ -8,7 +8,7 @@ import com.intellij.openapi.components.PersistentStateComponent
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.State
 import com.intellij.openapi.components.Storage
-import java.util.UUID
+import java.util.*
 
 data class PathMapping(
     var localPath: String = "",
@@ -58,6 +58,8 @@ data class ServerProfile(
     var type: ServerType = ServerType.SFTP,
     var basePath: String = "",
     var mappings: MutableList<PathMapping> = mutableListOf(),
+    // LEGACY ONLY - read by settings/LegacyMappingsMigration.kt so configs that kept fnmatch rows
+    // separately survive an upgrade. Delete this field together with that file.
     var fnPatterns: MutableList<PathMapping> = mutableListOf(),
     var actions: MutableList<ServerAction> = mutableListOf(),
 )
@@ -83,6 +85,9 @@ class SftpSettings : PersistentStateComponent<SftpSettingsState> {
     override fun getState(): SftpSettingsState = state
 
     override fun loadState(state: SftpSettingsState) {
+        // Legacy config migration: see settings/LegacyMappingsMigration.kt. Delete this call together with
+        // that file and the `fnPatterns` field in ServerProfile.
+        migrateLegacyMappings(state)
         this.state = state
     }
 
@@ -102,12 +107,6 @@ class SftpSettings : PersistentStateComponent<SftpSettingsState> {
         state.servers.add(profile)
         return profile
     }
-
-    fun remoteServers(): List<ServerProfile> =
-        state.servers.filter { it.type == ServerType.SFTP }
-
-    fun localServers(): List<ServerProfile> =
-        state.servers.filter { it.type == ServerType.LOCAL }
 
     fun folders(): List<String> =
         (state.folders + state.servers.map { it.folder })
@@ -155,31 +154,31 @@ class SftpSettings : PersistentStateComponent<SftpSettingsState> {
         get() = state.withInnerClasses
         set(value) {
             state.withInnerClasses = value
-         }
+        }
 
     var uploadJavaClassFiles: Boolean
         get() = state.uploadJavaClassFiles
         set(value) {
             state.uploadJavaClassFiles = value
-          }
+        }
 
     var newServerUseRsync: Boolean
         get() = state.newServerUseRsync
         set(value) {
             state.newServerUseRsync = value
-          }
+        }
 
     var showMenuAddFolderButton: Boolean
         get() = state.showMenuAddFolderButton
         set(value) {
             state.showMenuAddFolderButton = value
-          }
+        }
 
     var wrapMenuButtons: Boolean
         get() = state.wrapMenuButtons
         set(value) {
             state.wrapMenuButtons = value
-          }
+        }
 
     fun save(profile: ServerProfile) {
         if (profile.type == ServerType.LOCAL) {
