@@ -33,6 +33,10 @@ name: Release
 on:
   pull_request:
     branches: [master]
+    # Only the end of an MR's life carries information here: a merge is a release, an open or
+    # force-pushed PR is not. Without this filter every push to a PR branch queues a run whose
+    # only job is skipped by the guard below, which shows up as a "skipped check" on the PR.
+    types: [closed]
   workflow_dispatch:
     inputs:
       mode:

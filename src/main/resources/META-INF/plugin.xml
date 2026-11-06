@@ -22,6 +22,10 @@
          Read more: https://plugins.jetbrains.com/docs/intellij/plugin-compatibility.html -->
     <idea-version since-build="233"/>
     <depends>com.intellij.modules.platform</depends>
+    <!-- Java PSI resolves the classes that read a compile-time constant, so their compiled form is
+         uploaded too. The plugin therefore needs the IDE's Java support. -->
+    <depends>com.intellij.java</depends>
+
 
     <resource-bundle>messages.MyMessageBundle</resource-bundle>
 

@@ -28,9 +28,10 @@ dependencies {
         testFramework(TestFrameworkType.Platform)
         pluginVerifier()
 
-        // Add plugin dependencies for compilation here, for example:
-        // bundledPlugin("com.intellij.java")
+        // Java PSI, used to find the classes that read a changed compile-time constant.
+        bundledPlugin("com.intellij.java")
     }
+
 }
 
 intellijPlatform {
