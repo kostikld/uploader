@@ -1,16 +1,9 @@
 name: Release
 
-# `master` is merge-only, so a release is a two-phase flow, and the phase comes from the shape of the
-# merge - never from a commit message and never from a tag:
-#
-#   an MR whose branch is NOT `release/*` is merged -> the version is bumped on a new `release/<version>`
-#                                                   branch and a bump PR is opened; master is unchanged
-#   that bump PR is merged                          -> the version in master is uploaded to the JetBrains
-#                                                   Marketplace and the stamped CHANGELOG.md section is
-#                                                   committed back to master
-#
-# So one release costs two merges: the second one is the publish. `workflow_dispatch` runs either phase by
-# hand (mode: prepare | publish).
+# One merge releases one version. Merging an MR into `master` starts a run that bumps `version`
+# in gradle.properties, pushes that bump commit to `master`, uploads the new version to the JetBrains
+# Marketplace and commits the stamped CHANGELOG.md section back to `master`. There is no bump PR and
+# no second merge: the release is complete when the check on the merged MR goes green.
 #
 # `CHANGELOG.md` is never written by a workflow step: `patchChangelog` is a dependency of `publishPlugin`
 # (org/jetbrains/intellij/platform/gradle/plugins/changelog.kt:28-30) and it turns `## Unreleased` into
@@ -18,17 +11,23 @@ name: Release
 # commits what Gradle produced. The uploaded change notes come from that same stamped section
 # (changelog.kt:57-58 -> getOrNull(version) ?: getUnreleased()).
 #
-# The heading in the committed CHANGELOG.md doubles as the record that a version was already published,
+# `version` is bumped and pushed to `master` *before* the upload, because that push is the claim on
+# the number: two MRs merged back to back would otherwise read the same `master` tip and compute the
+# same version. The price is a `master` whose version is not uploaded yet when the upload fails;
+# `workflow_dispatch` with mode=publish finishes such a release without another bump.
+#
+# The heading stamped into CHANGELOG.md doubles as the record that a version was already published,
 # which is what the duplicate-upload guard reads: the Marketplace refuses an upload of a version it has
-# already, and an interrupted publish (uploaded, commit to master rejected) would otherwise retry it.
-# An empty `## Unreleased` section makes patchChangelog skip itself through StopActionException
-# (changelog/tasks/PatchChangelogTask.kt:118-121) without failing the build: such a release ships with
-# empty change notes, gets no heading, and the last step warns about it.
+# already, and an interrupted publish would otherwise retry it. An empty `## Unreleased` section makes
+# patchChangelog skip itself through StopActionException (changelog/tasks/PatchChangelogTask.kt:118-121)
+# without failing the build: such a release ships with empty change notes and gets no heading, and the
+# last step warns about it.
 #
 # Requires the `JB_MARKETPLACE_TOKEN` repository secret: build.gradle.kts reads that exact variable name
-# as the intellijPlatform.publishing token. Committing to master from the publish phase needs the GitHub
-# Actions app (id 15368) in the master ruleset bypass list; pushes made by that app never start another
-# run of this workflow, so the commit cannot loop.
+# as the intellijPlatform.publishing token. The run writes to `master` twice - the bump commit, then the
+# stamped changelog - so the GitHub Actions app (id 15368) must be in the `master` ruleset bypass list.
+# Pushes made by that app never start another run of this workflow, which is fine because a run publishes
+# the version it bumped to and never waits for a follow-up run.
 
 on:
   pull_request:
@@ -40,14 +39,13 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "prepare = bump gradle.properties and open the bump PR; publish = upload the version in master"
+        description: "release = bump the version in master and publish that; publish = publish the version already in master (re-run of an interrupted release)"
         required: true
-        default: prepare
-        options: [prepare, publish]
+        default: release
+        options: [release, publish]
 
 permissions:
-  contents: write # commit to master, push the release branch
-  pull-requests: write # open/update the bump PR
+  contents: write # push the bump commit and the stamped changelog to master
 
 jobs:
   release:
@@ -58,7 +56,7 @@ jobs:
       - uses: actions/checkout@v7
         with:
           # The merged state of master, not the PR head: the release is what master ended up with.
-          ref: ${{ github.event.pull_request.merge_commit_sha || github.base_ref || 'master' }}
+          ref: ${{ github.event.pull_request.merge_commit_sha || 'master' }}
           fetch-depth: 0
 
       - uses: actions/setup-java@v6
@@ -70,7 +68,7 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v6
 
-      - name: Decide the phase
+      - name: Decide the mode
         id: decide
         env:
           REQUESTED_MODE: ${{ inputs.mode }}
@@ -86,89 +84,74 @@ jobs:
           if [ -n "$requested" ]; then
             mode=$requested
           else
-            # The bump PR is created from `release/<version>`, so merging such a branch is the publish.
+            # Merging an MR is the whole release: bump first, then upload what was bumped to.
+            mode=release
             case "${HEAD_REF:-}" in
-              release/*) mode=publish ;;
-              *) mode=prepare ;;
+              release/*)
+                # Bump PRs are no longer opened or merged, so such a branch is a leftover from the
+                # previous flow: merging it only moves an unpublished version into master, and this run
+                # publishes the bump on top of it. Close the branch instead of merging it.
+                echo "::warning::merged a leftover ${HEAD_REF} branch: master now carries v${v}, and this run publishes the bump on top of it"
+                ;;
             esac
           fi
           {
             echo "version in gradle.properties: $v"
             echo "merged from: ${HEAD_REF:-workflow_dispatch}"
-            echo "phase: $mode"
+            echo "mode: $mode"
           } | tee -a "$GITHUB_STEP_SUMMARY"
-          echo "phase=$mode" >> "$GITHUB_OUTPUT"
-          echo "PLUGIN_VERSION=$v" >> "$GITHUB_ENV"
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
 
       - name: Test
         run: ./gradlew test --no-daemon
 
       - name: Release notes present?
-        if: steps.decide.outputs.phase == 'prepare'
         run: |
           set -euo pipefail
           notes=$(awk '/^## Unreleased[[:space:]]*$/{s=1;next} s&&/^## /{exit} s&&NF{n++} END{print n+0}' CHANGELOG.md)
           echo "Unreleased bullet lines: $notes" | tee -a "$GITHUB_STEP_SUMMARY"
           if [ "$notes" -eq 0 ]; then
-            echo "No release notes: this PR only bumps the version, and the Marketplace entry gets empty change notes." >> "$GITHUB_STEP_SUMMARY"
+            echo "No release notes: the Marketplace entry gets empty change notes and CHANGELOG.md gets no heading." >> "$GITHUB_STEP_SUMMARY"
           fi
 
-      - name: Bump patch version
-        if: steps.decide.outputs.phase == 'prepare'
+      - name: Bump the version on master
+        if: steps.decide.outputs.mode == 'release'
         run: |
           set -euo pipefail
-          # Another MR may have merged while this run was building: branch off current master, and read
-          # the version from it, so two runs cannot compute the same bump.
-          git fetch --quiet origin master:refs/remotes/origin/master
-          git reset --hard refs/remotes/origin/master
-          current=$(grep -m1 '^version=' gradle.properties | cut -d= -f2)
-          IFS=. read -r major minor patch <<< "$current"
-          new="$major.$minor.$((patch + 1))"
-          # No `sed -i`: that flag needs an extra argument on BSD/macOS, and this form behaves
-          # identically on a local run and on the runner.
-          sed "s/^version=.*/version=$new/" gradle.properties > gradle.properties.tmp
-          mv gradle.properties.tmp gradle.properties
-          echo "version: $current -> $new" | tee -a "$GITHUB_STEP_SUMMARY"
-          echo "NEW_VERSION=$new" >> "$GITHUB_ENV"
-
-      - name: Open the bump PR
-        if: steps.decide.outputs.phase == 'prepare'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          branch="release/${NEW_VERSION}"
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git switch -c "$branch"
-          # CHANGELOG.md is deliberately not staged: Gradle stamps it in the publish phase.
-          git add gradle.properties
-          if git diff --cached --quiet; then
-            echo "Nothing to release: gradle.properties was not changed." | tee -a "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          git commit -m "chore: bump version to ${NEW_VERSION}"
-          # The release branch is bot-owned, so a newer run replaces the previous bump commit
-          # instead of stacking another one on top of it.
-          git push --force origin "HEAD:refs/heads/${branch}"
-          title="chore: bump version to ${NEW_VERSION}"
-          body="Bumps \`version\` in gradle.properties. Merging this PR is the publish step: v${NEW_VERSION} is uploaded to the JetBrains Marketplace and the stamped CHANGELOG.md section is committed to master."
-          existing=$(gh pr list --head "$branch" --state open --json number --jq '.[0].number // empty')
-          if [ -n "$existing" ]; then
-            gh pr edit "$existing" --title "$title" --body "$body"
-          else
-            gh pr create --base master --head "$branch" --title "$title" --body "$body"
-          fi
-          echo "Bump PR ready for **v${NEW_VERSION}**." >> "$GITHUB_STEP_SUMMARY"
+          pushed=0
+          for attempt in 1 2 3 4 5; do
+            # Another MR may have merged while this run was building: branch off current master, and read
+            # the version from it, so two runs cannot compute the same bump.
+            git fetch --quiet origin master:refs/remotes/origin/master
+            git reset --hard refs/remotes/origin/master
+            current=$(grep -m1 '^version=' gradle.properties | cut -d= -f2)
+            IFS=. read -r major minor patch <<< "$current"
+            new="$major.$minor.$((patch + 1))"
+            # No `sed -i`: that flag needs an extra argument on BSD/macOS, and this form behaves
+            # identically on a local run and on the runner.
+            sed "s/^version=.*/version=$new/" gradle.properties > gradle.properties.tmp
+            mv gradle.properties.tmp gradle.properties
+            # Only gradle.properties is committed: CHANGELOG.md is stamped by Gradle in the publish step.
+            git add gradle.properties
+            git commit --quiet -m "chore: bump version to $new"
+            if git push --quiet origin "HEAD:refs/heads/master"; then
+              echo "version: $current -> $new" | tee -a "$GITHUB_STEP_SUMMARY"
+              pushed=1
+              break
+            fi
+            echo "master moved during the run: recomputing the bump (attempt $attempt)" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+          [ "$pushed" = 1 ] || { echo "::error::could not push the bump commit to master"; exit 1; }
 
-      - name: Publish, then commit the stamped changelog to master
-        if: steps.decide.outputs.phase == 'publish'
+      - name: Publish to the JetBrains Marketplace
         env:
           JB_MARKETPLACE_TOKEN: ${{ secrets.JB_MARKETPLACE_TOKEN }}
         run: |
           set -euo pipefail
-          git fetch --quiet origin master:refs/remotes/origin/master
-          git rebase refs/remotes/origin/master
+          # master already holds the version being published: in release mode the bump commit above was
+          # pushed, so this checkout sits on the master tip.
           v=$(grep -m1 '^version=' gradle.properties | cut -d= -f2)
           echo "publishing v$v (master tip $(git rev-parse --short HEAD))" | tee -a "$GITHUB_STEP_SUMMARY"
           # The heading committed by an earlier publish is the record that a version is already uploaded.
@@ -187,19 +170,37 @@ jobs:
               exit 1
             fi
           fi
+
+      - name: Commit the stamped changelog to master
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- CHANGELOG.md; then
+            echo "CHANGELOG.md was not stamped: patchChangelog skipped (empty release notes) or the section already existed." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          v=$(grep -m1 '^version=' gradle.properties | cut -d= -f2)
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
           # patchChangelog ran as a dependency of publishPlugin and stamped the file in the checkout.
-          if ! git diff --quiet -- CHANGELOG.md; then
-            git add CHANGELOG.md
-            git commit -m "docs: changelog for v$v"
-            git push origin "HEAD:refs/heads/master"
-          else
-            echo "CHANGELOG.md was not stamped: patchChangelog skipped (empty release notes) or the section already existed." | tee -a "$GITHUB_STEP_SUMMARY"
+          git add CHANGELOG.md
+          git commit --quiet -m "docs: changelog for v$v"
+          # The bump step already landed on the master tip, so a rejected push here means another
+          # release raced this one: replay the changelog commit instead of forcing over it.
+          if ! git push --quiet origin "HEAD:refs/heads/master"; then
+            git fetch --quiet origin master:refs/remotes/origin/master
+            if git rebase --quiet refs/remotes/origin/master; then
+              git push --quiet origin "HEAD:refs/heads/master" || {
+                echo "::error::master keeps moving - commit the stamped CHANGELOG.md by hand or re-run with mode=publish"
+                exit 1
+              }
+            else
+              echo "::error::CHANGELOG.md conflicts with a concurrent release - re-run with mode=publish"
+              git rebase --abort || true
+              exit 1
+            fi
           fi
 
       - name: Confirm the changelog has a heading for the published version
-        if: steps.decide.outputs.phase == 'publish'
         run: |
           set -euo pipefail
           v=$(grep -m1 '^version=' gradle.properties | cut -d= -f2)
