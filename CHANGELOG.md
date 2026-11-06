@@ -4,6 +4,16 @@
 
 ## Unreleased
 
+- Right-click a folder for **Add Folder**, which creates a folder inside the one you clicked.
+- A folder stays open when a server inside it is added, cloned or removed, and the selected entry
+   stays selected after the list is rebuilt, so `Delete` and the duplicate key work right away.
+- `Delete` (or `Backspace`) removes the selected path mapping or action rows in the server dialog,
+   the same key that removes a selected server or folder in the tool window.
+- The server selected in the tool window is preselected when "Upload GIT Changes" opens, instead of
+   the first profile of the list.
+- The messages for an existing folder and for a folder name containing `..` are shown as text
+   instead of their internal keys.
+
 ## 1.0.13 - 2026-11-05
 
 - Path mappings and fnmatch patterns are configured in one table: a row whose local side contains `*`,

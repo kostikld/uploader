@@ -1,6 +1,7 @@
 package org.kavo.uploader.changedfiles
 
 import org.kavo.uploader.settings.PathMapping
+import org.kavo.uploader.settings.ServerProfile
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -76,5 +77,31 @@ class ChangedFilesTest {
             projectRoot = projectRoot,
              )
         assertEquals(listOf("A.class", "B.class"), rows.map { it.displayPath.substringAfterLast('/') })
-           }
+    }
+
+    @Test
+    fun `preselects the server selected in the tool window`() {
+        val first = ServerProfile(name = "first")
+        val second = ServerProfile(name = "second")
+        assertEquals(second, initialServer(listOf(first, second), second))
+    }
+
+    @Test
+    fun `falls back to the first server when nothing is selected`() {
+        val first = ServerProfile(name = "first")
+        val second = ServerProfile(name = "second")
+        assertEquals(first, initialServer(listOf(first, second), null))
+    }
+
+    @Test
+    fun `falls back to the first server when the selected one is gone`() {
+        val first = ServerProfile(name = "first")
+        val second = ServerProfile(name = "second")
+        assertEquals(first, initialServer(listOf(first, second), ServerProfile(name = "removed")))
+    }
+
+    @Test
+    fun `no server is preselected without profiles`() {
+        assertTrue(initialServer(emptyList(), null) == null)
+    }
 }

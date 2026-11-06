@@ -5,6 +5,7 @@ import java.awt.Toolkit
 import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
 import java.awt.event.ActionEvent
+import java.awt.event.KeyAdapter
 import java.awt.event.KeyEvent
 import java.awt.event.InputEvent
 import javax.swing.AbstractAction
@@ -47,6 +48,8 @@ fun installTableShortcuts(
     val inputMap = table.getInputMap(JComponent.WHEN_FOCUSED)
     val actionMap = table.actionMap
 
+    installRowDeleteShortcut(table, model)
+
     inputMap.put(KeyStroke.getKeyStroke(KeyEvent.VK_C, menuShortcutMask), "copySelectedCell")
     actionMap.put("copySelectedCell", object : AbstractAction() {
         override fun actionPerformed(event: ActionEvent) {
@@ -75,6 +78,25 @@ fun installTableShortcuts(
     installCloneShortcut(table) {
         cloneSelectedRows(table, model, cloneRows)
     }
+}
+
+/**
+ * `Delete` and `Backspace` remove the selected rows, the same keys that remove a selected server
+ * or folder in the tool window. While a cell is being edited those keys belong to the editor, so
+ * typing inside a cell is left alone.
+ */
+private fun installRowDeleteShortcut(table: JTable, model: DefaultTableModel) {
+    table.addKeyListener(object : KeyAdapter() {
+        override fun keyPressed(event: KeyEvent) {
+            if (event.keyCode != KeyEvent.VK_DELETE && event.keyCode != KeyEvent.VK_BACK_SPACE) return
+            if (table.isEditing) return
+            val rows = table.selectedRows.sortedDescending()
+            if (rows.isEmpty()) return
+            event.consume()
+            rows.forEach(model::removeRow)
+            table.repaint()
+        }
+    })
 }
 
 private fun cloneSelectedRows(
