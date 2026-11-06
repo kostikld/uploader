@@ -4,7 +4,8 @@ SFTP Uploader is an IntelliJ IDEA plugin for uploading project files to remote s
 
 ## Requirements
 
-- IntelliJ IDEA 2023.3 or later
+- IntelliJ IDEA 2023.3 or later, with Java support enabled (the plugin resolves Java code, so it does not
+   load in an IDE without it)
 - Network access to the target server over SSH/SFTP
 - A username and password accepted by that server
 - `rsync` and `ssh` on your local machine when using rsync uploads
@@ -83,6 +84,40 @@ Choose a configured server profile from the submenu. Required remote directories
 In the **SFTP Uploader** tool window, select **Upload changed files**. The plugin prompts for a commit id: enter one to list the files changed in that commit, or leave it blank to use the current Git working tree. It then lets you choose a server and files, and uploads the selected items. The server selected in the tool window is preselected; pick another one from the list if needed.
 
 Files that do not match a mapping are disabled. When compiled Java uploads are enabled, Java files without a compiled class are also disabled.
+
+### Analyze constants changes
+
+Java copies the value of a `static final` constant into the bytecode of every class that reads it, so changing
+such a value changes those classes even when their own files did not change. The **Upload changed files** dialog
+has an **Analyze Constants Changes** button for that: it compares every listed Java file with its earlier version,
+finds the constants whose value differs, and adds the classes that read them.
+
+The list is then split into two sections:
+
+- **Changed in Git**: the files reported by Git.
+- **Classes reading a changed constant**: the Java files that read a constant whose value differs, together with
+   their compiled classes.
+
+A class that appears in both sections is shown twice and checked or unchecked once, and it is uploaded once.
+Hovering over a file in the second section shows the constant that put it there, for example
+`Reads a changed constant: MAX: 10 -> 20`.
+
+After the analysis the dialog opens again with everything you chose kept - the server, the checked files and the
+zip choice - so you can press the button once more or confirm and upload. Pressing it never uploads anything by
+itself, and the constant's own file does not have to be checked or even uploadable: it is enough that it is in
+the list, since the classes reading it are often in another module with their own mapping.
+
+The button is hidden when **Upload compiled classes for Java files** is off, and when none of the listed files
+comes from a Java file, for example in a Kotlin only project: in both cases there is no constant that could
+affect another class. Only compile-time constants are considered - `static final` fields of a primitive
+or `String` type with a constant expression, in a class or in a nested interface; a field initialized by a method
+call keeps its value at runtime and therefore needs no other class.
+
+The classes reading a changed constant are found by the IDE's Java code index, which resolves qualified names,
+static imports and inherited names exactly. When that index cannot answer - a folder opened without a project
+import, indexing still running - the plugin falls back to reading the Java sources under the project and looking
+for the constant's name outside comments; that is a wider net, so the listed files are worth a look before
+uploading. Kotlin sources are not searched either way, and a search that finds nothing says so in one line.
 
 ## Compare with the server
 

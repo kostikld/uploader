@@ -4,6 +4,16 @@
 
 ## Unreleased
 
+- The dialog has an **Analyze Constants Changes** button: it compares the listed Java files with their earlier
+   version, finds the constants whose value differs, and adds the classes that read them to the list below. It is hidden while
+   **Upload compiled classes for Java files** is off or when none of the listed files comes from a Java file.
+- A class that both changed in Git and reads a changed constant is listed in both sections, is checked or unchecked
+   once, and is uploaded once.
+- The plugin now needs the IDE's Java support to resolve the classes that read a constant, so it no longer loads
+   in an IDE without it.
+
+## 1.0.14 - 2026-11-05
+
 - Right-click a folder for **Add Folder**, which creates a folder inside the one you clicked.
 - A folder stays open when a server inside it is added, cloned or removed, and the selected entry
    stays selected after the list is rebuilt, so `Delete` and the duplicate key work right away.

@@ -11,7 +11,7 @@ object GitScanner {
 
     fun changedFiles(workDir: File): List<Path> {
         val output = runGit(workDir, "status", "--porcelain=v1", "-z") ?: return emptyList()
-        val root = workDir.toPath().toAbsolutePath().normalize()
+        val root = repositoryRoot(workDir) ?: workDir.toPath().toAbsolutePath().normalize()
         return parsePorcelain(output).map { root.resolve(it).normalize() }
      }
 
@@ -19,10 +19,41 @@ object GitScanner {
         runGit(workDir, "rev-parse", "--quiet", "--verify", commit) != null
 
     fun filesInCommit(workDir: File, commit: String): List<Path> {
-        val output = runGit(workDir, "show", "--format=", "--name-status", "-z", commit, "--") ?: return emptyList()
-        val root = workDir.toPath().toAbsolutePath().normalize()
+        val output = runGit(workDir, "show", "--format=", "--name-status", "-z", commit, "--")
+            ?: return emptyList()
+        val root = repositoryRoot(workDir) ?: workDir.toPath().toAbsolutePath().normalize()
         return parseNameStatus(output).map { root.resolve(it).normalize() }
      }
+
+    /**
+     * The content of a file in an earlier revision, used to tell whether a value actually changed.
+     * Returns null when the file is not in that revision, which is the case for a new file.
+     */
+    fun contentAt(workDir: File, ref: String, path: Path): String? {
+        val relative = relativeToRepository(workDir, path) ?: return null
+        return runGit(workDir, "show", "$ref:$relative")
+    }
+
+    private fun relativeToRepository(workDir: File, path: Path): String? {
+        // `git show ref:path` reads a path from the top of the repository, which can be above the directory
+        // the project was opened in.
+        val root = repositoryRoot(workDir) ?: workDir.toPath().toAbsolutePath().normalize()
+        val relative = try {
+            root.relativize(path.toAbsolutePath().normalize())
+        } catch (_: IllegalArgumentException) {
+            return null
+        }
+        val segments = mutableListOf<String>()
+        for (segment in relative) segments.add(segment.toString())
+        // A path outside the repository, or the repository directory itself, has no file of its own to read.
+        if (segments.isEmpty() || segments.first() == "..") return null
+        return segments.joinToString("/")
+    }
+
+    private fun repositoryRoot(workDir: File): Path? =
+        runGit(workDir, "rev-parse", "--show-toplevel")?.trim()?.let { Paths.get(it) }
+
+
 
     fun parseNameStatus(output: String): List<Path> {
         val fields = output.split('\u0000').filter { it.isNotEmpty() }

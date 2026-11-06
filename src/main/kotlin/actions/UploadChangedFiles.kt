@@ -2,6 +2,8 @@ package org.kavo.uploader.actions
 
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.application.ReadAction
+import com.intellij.openapi.project.DumbService
+import com.intellij.openapi.project.IndexNotReadyException
 import com.intellij.openapi.progress.ProgressIndicator
 import com.intellij.openapi.progress.Task
 import com.intellij.openapi.project.Project
@@ -15,11 +17,15 @@ import org.kavo.uploader.changedfiles.ChangedFilesData
 import org.kavo.uploader.changedfiles.ChangedFilesDialog
 import org.kavo.uploader.changedfiles.UploadRow
 import org.kavo.uploader.changedfiles.buildUploadRows
+import org.kavo.uploader.changedfiles.dedupeRows
+import org.kavo.uploader.changedfiles.rowKey
 import org.kavo.uploader.settings.PasswordStore
 import org.kavo.uploader.settings.SftpSettings
 import org.kavo.uploader.settings.SettingsAccess
 import org.kavo.uploader.upload.*
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.Path
 import java.util.concurrent.Callable
 import javax.swing.JComponent
 
@@ -69,16 +75,7 @@ private fun scanAndShow(
         )
         return
     }
-    val classByJava = ReadAction.nonBlocking(
-        Callable {
-            changed.associateWith { path ->
-                val virtualFile = LocalFileSystem.getInstance().findFileByPath(path.toAbsolutePath().toString())
-                    ?: return@associateWith null
-                if (!virtualFile.name.endsWith(".java")) null else
-                    JavaClassResolver.compiledClassFile(project, virtualFile)
-            }
-        },
-    ).executeSynchronously()
+    val classByJava = classesFor(project, changed)
     val settings = SftpSettings.getInstance()
     val rows = buildUploadRows(
         changed = changed,
@@ -86,21 +83,165 @@ private fun scanAndShow(
         uploadJavaClassFiles = settings.uploadJavaClassFiles,
         projectRoot = projectRoot,
     )
-    val data = ChangedFilesData(rows, projectRoot, servers, selected)
+    // Without the compiled classes of a Java file there is nothing a constant change could add.
+    promptForSelection(
+        project,
+        ChangedFilesData(rows, emptyList(), projectRoot, servers, selected),
+        null,
+        settings.uploadJavaClassFiles,
+        workDir,
+        commit,
+    )
+}
+
+/**
+ * Asks which files to upload. Pressing "Analyze Constants Changes" adds the classes that read a
+ * constant whose value changed to the list below, keeping the previous picks, and asks again.
+ */
+private fun promptForSelection(
+    project: Project,
+    data: ChangedFilesData,
+    preselected: Set<String>?,
+    canAnalyzeConstants: Boolean,
+    workDir: File,
+    commit: String?,
+) {
     ApplicationManager.getApplication().invokeLater {
-        val dialog = ChangedFilesDialog(project, data)
+        val dialog = ChangedFilesDialog(project, data, preselected, canAnalyzeConstants)
         if (!dialog.showAndGet()) return@invokeLater
-        uploadSelected(
-            project,
-            dialog.result(),
-            dialog.selectedServer(),
-            data,
-            settings,
-            dialog.zipSelected(),
-            dialog.archiveName(),
-        )
+        if (!dialog.analyzeRequested()) {
+            uploadSelected(
+                project,
+                dialog.result(),
+                dialog.selectedServer(),
+                data,
+                SftpSettings.getInstance(),
+                dialog.zipSelected(),
+                dialog.archiveName(),
+            )
+            return@invokeLater
+        }
+        // The analysis never uploads: it only widens the list, then asks again with the earlier choices kept.
+        object : Task.Backgroundable(project, MyMessageBundle.message("changed.constants.searching"), true) {
+            override fun run(indicator: ProgressIndicator) {
+                val derived =
+                    constantDependentRows(project, workDir, commit, dialog.analyzedJavaFiles(), data.projectRoot)
+                promptForSelection(
+                    project,
+                    ChangedFilesData(
+                        rows = data.rows,
+                        derivedRows = dedupeRows(data.derivedRows + derived),
+                        projectRoot = data.projectRoot,
+                        servers = data.servers,
+                        selectedServer = dialog.selectedServer(),
+                        zip = dialog.zipSelected(),
+                        archiveName = dialog.archiveName(),
+                    ),
+                    // The earlier picks plus the newly found classes: they are what the analysis was for,
+                    // so they start checked, and the analysis can be pressed again to widen the list.
+                    dialog.pickedKeys() + derived.map { rowKey(it) },
+                    canAnalyzeConstants,
+                    workDir,
+                    commit,
+                )
+            }
+        }.queue()
     }
 }
+
+private fun constantDependentRows(
+    project: Project,
+    workDir: File,
+    commit: String?,
+    sources: List<Path>,
+    projectRoot: Path,
+): List<UploadRow> {
+    val changes = constantChanges(workDir, commit, sources)
+    if (changes.isEmpty()) {
+        UploaderNotifications.info(project, MyMessageBundle.message("changed.constants.none"))
+        return emptyList()
+    }
+    var affected = indexAffectedFiles(project, changes)
+    if (affected.isEmpty()) {
+        // The code index gave nothing, so the sources under the project are read instead.
+        affected = ConstantNameSearch.affectedFiles(projectRoot, changes)
+    }
+    if (affected.isEmpty()) {
+        UploaderNotifications.info(project, MyMessageBundle.message("changed.constants.none"))
+        return emptyList()
+    }
+    val dependentSources = affected.keys.toList()
+    return buildUploadRows(
+        changed = dependentSources,
+        classByJava = classesFor(project, dependentSources),
+        uploadJavaClassFiles = true,
+        projectRoot = projectRoot,
+        reasonBySource = affected,
+    )
+}
+
+/**
+ * The listed Java files whose own diff contains a constant whose value the compiler copies around.
+ *
+ * The earlier version of a file is what the currently deployed classes were built with: `HEAD` for working
+ * changes, the commit before the chosen one when a commit was picked.
+ */
+private fun constantChanges(workDir: File, commit: String?, sources: List<Path>): Map<Path, ConstantFileChange> {
+    val changes = mutableMapOf<Path, ConstantFileChange>()
+    // The earlier version is what the deployed classes were built with: HEAD for working changes, the
+    // parent of the chosen commit otherwise.
+    val oldRef = if (commit != null) "$commit^" else "HEAD"
+    sources.forEach { source ->
+        if (!source.toString().endsWith(".java")) return@forEach
+        val current = if (commit != null) GitScanner.contentAt(workDir, commit, source) else workingText(source)
+        val earlier = GitScanner.contentAt(workDir, oldRef, source)
+        // A constant that only exists now, or only existed before, has no compiled readers to fix.
+        if (current == null || earlier == null) return@forEach
+        val change = constantFileChange(earlier, current)
+        if (!change.isEmpty()) changes[source] = change
+    }
+    return changes
+}
+
+private fun workingText(source: Path): String? =
+    try {
+        Files.readAllLines(source).joinToString("\n")
+    } catch (_: Exception) {
+        null
+    }
+
+/**
+ * The classes that read one of those constants. The result carries the change that put the class on the list,
+ * shown as the file's tooltip.
+ */
+/**
+ * The files the IDE's Java index reports as reading one of the changed constants, empty when the index cannot
+ * answer: while it is still building, or when the changed files are not part of it.
+ */
+private fun indexAffectedFiles(
+    project: Project,
+    changes: Map<Path, ConstantFileChange>,
+): Map<Path, String> {
+    if (DumbService.isDumb(project)) return emptyMap()
+    return try {
+        ReadAction.nonBlocking(
+            Callable { ConstantUsageScanner.affectedFiles(project, changes) },
+        ).executeSynchronously()
+    } catch (_: IndexNotReadyException) {
+        emptyMap()
+    }
+}
+
+private fun classesFor(project: Project, sources: List<Path>): Map<Path, Path?> =
+    ReadAction.nonBlocking(
+        Callable {
+            sources.associateWith { source ->
+                val virtualFile = LocalFileSystem.getInstance().findFileByPath(source.toAbsolutePath().toString())
+                    ?: return@associateWith null
+                if (!virtualFile.name.endsWith(".java")) null else JavaClassResolver.compiledClassFile(project, virtualFile)
+            }
+        },
+    ).executeSynchronously()
 
 private fun uploadSelected(
     project: Project,
@@ -112,7 +253,10 @@ private fun uploadSelected(
     archiveName: String,
 ) {
     if (profile == null || selectedRows.isEmpty()) return
-    val expanded = ClassFileExpander.expand(selectedRows.map { it.uploadPath }, settings.withInnerClasses)
+    val expanded = ClassFileExpander.expand(
+        dedupeRows(selectedRows).map { it.uploadPath },
+        settings.withInnerClasses,
+    )
     val requests = expanded.mapNotNull { path ->
         val remote = if (profile.type == org.kavo.uploader.settings.ServerType.LOCAL)
             PathMappingResolver.resolveLocal(data.projectRoot, path, profile.mappings, profile.basePath)
@@ -142,11 +286,11 @@ private fun uploadSelected(
                         archivePath,
                         requests,
                         profile.mappings,
-                        indicator::checkCanceled
+                        indicator::checkCanceled,
                     )
                     UploaderNotifications.info(
                         project,
-                        MyMessageBundle.message("changed.zip.success", requests.size, archivePath.toString())
+                        MyMessageBundle.message("changed.zip.success", requests.size, archivePath.toString()),
                     )
                     return
                 }
@@ -155,7 +299,7 @@ private fun uploadSelected(
                     if (password == null) {
                         UploaderNotifications.error(
                             project,
-                            MyMessageBundle.message("error.password.missing", profile.name)
+                            MyMessageBundle.message("error.password.missing", profile.name),
                         )
                         return
                     }
@@ -180,7 +324,7 @@ private fun uploadSelected(
                 )
                 UploaderNotifications.info(
                     project,
-                    MyMessageBundle.message("upload.success", requests.size, profile.name)
+                    MyMessageBundle.message("upload.success", requests.size, profile.name),
                 )
             } catch (error: Exception) {
                 UploaderNotifications.error(
@@ -197,11 +341,11 @@ private fun uploadSelected(
 }
 
 private fun resolveArchivePath(
-    projectRoot: java.nio.file.Path,
+    projectRoot: Path,
     archiveName: String,
     mappings: List<org.kavo.uploader.settings.PathMapping>,
     basePath: String,
-): java.nio.file.Path {
+): Path {
     if (archiveName.startsWith("/")) return withZipSuffix(java.nio.file.Paths.get(archiveName))
     val base = basePath.trim().replace('\\', '/').trimEnd('/')
     if (base.isNotEmpty()) return withZipSuffix(java.nio.file.Paths.get("$base/$archiveName"))
@@ -210,16 +354,17 @@ private fun resolveArchivePath(
     val root = java.nio.file.Paths.get(projectRoot.toAbsolutePath().normalize().toString())
     return withZipSuffix(
         java.nio.file.Paths.get(
-            root.toString().let { if (it.endsWith("/")) it + archiveName else "$it/$archiveName" })
+            root.toString().let { if (it.endsWith("/")) it + archiveName else "$it/$archiveName" },
+        )
     )
 }
 
-private fun withZipSuffix(path: java.nio.file.Path): java.nio.file.Path {
+private fun withZipSuffix(path: Path): Path {
     val name = File(path.toString()).name
-    return if (name.endsWith(".zip", ignoreCase = true)) path else java.nio.file.Paths.get(path.toString() + ".zip")
+    return if (name.endsWith(".zip", ignoreCase = true)) path else java.nio.file.Paths.get("$path.zip")
 }
 
-private class CommitInputDialog(private val project: Project) : DialogWrapper(project, true) {
+private class CommitInputDialog(project: Project) : DialogWrapper(project, true) {
     private val commitField = JBTextField()
 
     init {

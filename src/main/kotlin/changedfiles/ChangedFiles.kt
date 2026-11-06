@@ -9,6 +9,8 @@ data class UploadRow(
     val displayPath: String,
     val uploadPath: Path,
     val missingClass: Boolean,
+    val sourcePath: Path,
+    val reason: String? = null,
 )
 
 fun buildUploadRows(
@@ -16,29 +18,44 @@ fun buildUploadRows(
     classByJava: Map<Path, Path?>,
     uploadJavaClassFiles: Boolean,
     projectRoot: Path,
+    reasonBySource: Map<Path, String> = emptyMap(),
 ): List<UploadRow> {
     val root = projectRoot.toAbsolutePath().normalize()
     val results = mutableListOf<UploadRow>()
     changed.forEach { source ->
         val absolute = source.toAbsolutePath().normalize()
         val isJava = absolute.fileName?.toString()?.endsWith(".java") == true
-        val compiled = when {
-            isJava && uploadJavaClassFiles -> classByJava[absolute]
-            else -> null
-            }
+        val compiled = if (isJava && uploadJavaClassFiles) classByJava[absolute] else null
+        val uploadPath = compiled ?: absolute
+        val missingClass = isJava && uploadJavaClassFiles && compiled == null
         results.add(
-            when {
-                compiled != null ->
-                    UploadRow(root.relativize(compiled.toAbsolutePath().normalize()).toString(), compiled, false)
-                isJava && uploadJavaClassFiles ->
-                    UploadRow(root.relativize(absolute).toString(), absolute, true)
-                else ->
-                    UploadRow(root.relativize(absolute).toString(), absolute, false)
-                }
-            )
-           }
+            UploadRow(
+                displayPath = root.relativize(uploadPath).toString(),
+                uploadPath = uploadPath,
+                missingClass = missingClass,
+                sourcePath = absolute,
+                reason = reasonBySource[absolute],
+            ),
+        )
+    }
     return results
-        }
+}
+
+/** Two rows stand for the same file when their upload path is the same. */
+fun rowKey(row: UploadRow): String = row.uploadPath.toAbsolutePath().normalize().toString()
+
+/**
+ * A class that both changed in git and reads a changed constant is listed twice; uploading it twice would
+ * only repeat the same file, so the second row is dropped.
+ */
+fun dedupeRows(rows: List<UploadRow>): List<UploadRow> = rows.distinctBy { row -> rowKey(row) }
+
+/** Whether the file a row stands for is Java source. */
+fun isJavaSource(row: UploadRow): Boolean = row.sourcePath.toString().endsWith(".java")
+
+/** The Java files a list of rows stands for, which is what the constants analysis works on. */
+fun javaSources(rows: List<UploadRow>): List<Path> =
+    rows.filter { row -> isJavaSource(row) }.map { row -> row.sourcePath }.distinct()
 
 fun rowIsEnabled(
     row: UploadRow,

@@ -104,4 +104,63 @@ class ChangedFilesTest {
     fun `no server is preselected without profiles`() {
         assertTrue(initialServer(emptyList(), null) == null)
     }
+
+    @Test
+    fun `a derived row keeps the Java file it was found from`() {
+        val java = Paths.get("/project/src/Service.java")
+        val classFile = Paths.get("/project/target/classes/Service.class")
+        val row = buildUploadRows(
+            changed = listOf(java),
+            classByJava = mapOf(java to classFile),
+            uploadJavaClassFiles = true,
+            projectRoot = projectRoot,
+            reasonBySource = mapOf(java to "MAX: 10 -> 20"),
+        ).single()
+        assertEquals(java, row.sourcePath)
+        assertEquals("MAX: 10 -> 20", row.reason)
+    }
+
+    @Test
+    fun `a class listed twice is uploaded once`() {
+        val java = Paths.get("/project/src/Service.java")
+        val classFile = Paths.get("/project/target/classes/Service.class")
+        val changedRows = buildUploadRows(listOf(java), mapOf(java to classFile), true, projectRoot)
+        val derivedRows = buildUploadRows(
+            changed = listOf(java),
+            classByJava = mapOf(java to classFile),
+            uploadJavaClassFiles = true,
+            projectRoot = projectRoot,
+            reasonBySource = mapOf(java to "MAX: 10 -> 20"),
+        )
+        assertEquals(listOf(classFile), dedupeRows(changedRows + derivedRows).map { it.uploadPath })
+    }
+
+    @Test
+    fun `the analysis gives the Java file a class row stands for`() {
+        val java = Paths.get("/project/src/Service.java")
+        val classFile = Paths.get("/project/target/classes/Service.class")
+        val rows = buildUploadRows(listOf(java), mapOf(java to classFile), true, projectRoot) +
+            buildUploadRows(listOf(Paths.get("/project/src/App.kt")), emptyMap(), true, projectRoot)
+        assertEquals(listOf(classFile, Paths.get("/project/src/App.kt")), rows.map { it.uploadPath })
+        assertEquals(listOf(java), javaSources(rows))
+    }
+
+    @Test
+    fun `a list without a Java file has nothing to analyze`() {
+        val rows = buildUploadRows(listOf(Paths.get("/project/src/App.kt")), emptyMap(), true, projectRoot)
+        assertTrue(javaSources(rows).isEmpty())
+    }
+
+    @Test
+    fun `a file that only appears as a dependent stays in the list`() {
+        val java = Paths.get("/project/src/Service.java")
+        val classFile = Paths.get("/project/target/classes/Service.class")
+        val other = Paths.get("/project/src/Other.java")
+        val otherClass = Paths.get("/project/target/classes/Other.class")
+        val rows = dedupeRows(
+            buildUploadRows(listOf(java), mapOf(java to classFile), true, projectRoot) +
+                buildUploadRows(listOf(other), mapOf(other to otherClass), true, projectRoot),
+        )
+        assertEquals(listOf(classFile, otherClass), rows.map { it.uploadPath })
+    }
 }
