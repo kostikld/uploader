@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+## 1.0.16 - 2026-11-09
+
 - A username is configured once as a **credentials** entry and picked by any number of servers, instead of typing
    a username and password into every server profile. The tool window tree now has two folders, **Servers** and
    **Credentials**; right-click the credentials folder or one of its entries to add, edit, remove, copy or import

@@ -62,6 +62,18 @@ data class CredentialsProfile(
 )
 
 /**
+ * A server type - "Payment Service", "Customer Service" - with the mappings and actions every server of
+ * that type shares. A server picks one facility and inherits its entries; the server's own rows win over
+ * facility rows with the same local path or action name. See settings/FacilityInheritance.kt.
+ */
+data class Facility(
+    var id: String = UUID.randomUUID().toString(),
+    var name: String = "",
+    var mappings: MutableList<PathMapping> = mutableListOf(),
+    var actions: MutableList<ServerAction> = mutableListOf(),
+)
+
+/**
  * A server dialog's credentials choice: the entry it picked, or a new username and password that either
  * become an entry (`storeAsEntity`) or stay with this one server. `password` is the typed secret, null
  * when the user left the field blank to keep the current one.
@@ -87,6 +99,9 @@ data class ServerProfile(
     var useRsync: Boolean = false,
     var type: ServerType = ServerType.SFTP,
     var basePath: String = "",
+    // Reference to a Facility: id only. Empty means the server stands on its own, as it did before
+    // facilities existed.
+    var facilityId: String = "",
     var mappings: MutableList<PathMapping> = mutableListOf(),
     // LEGACY ONLY - read by settings/LegacyMappingsMigration.kt so configs that kept fnmatch rows
     // separately survive an upgrade. Delete this field together with that file.
@@ -100,6 +115,7 @@ const val MENU_BUTTONS_GAP = 4
 data class SftpSettingsState(
     var servers: MutableList<ServerProfile> = mutableListOf(),
     var credentials: MutableList<CredentialsProfile> = mutableListOf(),
+    var facilities: MutableList<Facility> = mutableListOf(),
     var folders: MutableList<String> = mutableListOf(),
     var withInnerClasses: Boolean = true,
     var uploadJavaClassFiles: Boolean = true,
@@ -315,6 +331,37 @@ class SftpSettings : PersistentStateComponent<SftpSettingsState> {
         selection.existingId?.let { credential(it) }?.let { return it }
         if (!selection.storeAsEntity) return null
         return addCredential(selection.name, selection.username)
+    }
+
+    // ------------------------------------------------------------------
+    // Facilities: a server type whose mappings and actions its servers inherit.
+    // ------------------------------------------------------------------
+
+    fun facilities(): List<Facility> = state.facilities
+
+    fun facility(facilityId: String): Facility? =
+        if (facilityId.isEmpty()) null else state.facilities.firstOrNull { it.id == facilityId }
+
+    fun facilityByName(name: String): Facility? = state.facilities.firstOrNull { it.name == name }
+
+    /** Profiles that inherit from this facility; an empty id matches none. */
+    fun profilesUsingFacility(facilityId: String): List<ServerProfile> =
+        if (facilityId.isEmpty()) emptyList()
+        else state.servers.filter { it.facilityId == facilityId }
+
+    /** Saves a facility: a blank id issues a new one, a known id updates that facility in place. */
+    fun saveFacility(facility: Facility) {
+        val index = state.facilities.indexOfFirst { it.id == facility.id }
+        if (index >= 0) state.facilities[index] = facility else state.facilities.add(facility)
+    }
+
+    /**
+     * Removes a facility and lets go of the servers that picked it: their `facilityId` is cleared while
+     * their own mappings and actions stay, so each one simply stops inheriting.
+     */
+    fun removeFacility(facilityId: String) {
+        profilesUsingFacility(facilityId).forEach { it.facilityId = "" }
+        state.facilities.removeIf { it.id == facilityId }
     }
 
     companion object {

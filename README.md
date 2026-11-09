@@ -67,6 +67,23 @@ of servers can pick, and the tree shows it as `name — username`.
 Servers configured before credentials entries existed keep working: they were given an entry named after their
 username, and their stored password is read from where it was saved until it is typed in again.
 
+### Share mappings and actions with a facility
+
+A **facility** is a server type - `Payment Service`, `Customer Service` - with the path mappings and actions
+every server of that type shares, so those are configured once instead of per server. The tool window tree
+has a **Facilities** folder next to **Servers** and **Credentials**: right-click it for **Add Facility**,
+right-click an entry for **Edit Facility** and **Remove Facility** (`Delete` removes the selected one), then
+pick the facility in the **Facility (server type)** dropdown of the server dialog.
+
+- A server inherits the facility's mappings and actions everywhere it is used: upload, compare, copy to
+  local, git changes, and the **Actions** submenu.
+- The server's own rows win: a mapping with the same local path replaces the facility's one, an action with
+  the same name replaces the facility's one. Rows that override are highlighted in the server dialog, and
+  what the facility supplies is listed under the collapsed **Inherited from facility** section.
+- Editing a facility reaches every server picking it at once. Removing one asks first, naming the servers;
+  those servers keep their own mappings and actions.
+- Cloning a server keeps its facility.
+
 ### Fnmatch patterns
 
 Files that are scattered over the project are often easier to select with a pattern than with a
@@ -183,6 +200,7 @@ Each server profile can also enable **Upload using rsync**. If an rsync upload f
 
 Add named commands to a server profile under **Actions**. Right-click that server in the tool window and select an action to execute it through SSH. The result, exit status, and up to 64 KiB of output are shown in an IDE notification.
 You can use template parameters in actions. For example, `date -l ${option}` will prompt for an option for date.
+A server also lists the actions of its [facility](#share-mappings-and-actions-with-a-facility); its own action with the same name replaces the inherited one.
 
 Only save and run commands you trust: actions execute on the remote server as the configured user.
 

@@ -26,8 +26,12 @@ import com.intellij.util.ui.UIUtil
 import org.kavo.uploader.actions.launchUploadChangedFiles
 import org.kavo.uploader.settings.*
 import org.kavo.uploader.transfer.ProfileTransfer
+import org.kavo.uploader.ui.CollapsibleSection
+import org.kavo.uploader.ui.FacilityDeleteDialog
+import org.kavo.uploader.ui.FacilityEditDialog
+import org.kavo.uploader.ui.MappingActionTables
+import org.kavo.uploader.ui.RowsAwareScrollPane
 import org.kavo.uploader.ui.installCloneShortcut
-import org.kavo.uploader.ui.installTableShortcuts
 import org.kavo.uploader.upload.*
 import java.awt.*
 import java.awt.datatransfer.StringSelection
@@ -55,6 +59,7 @@ private fun copyToClipboard(text: String) {
 private const val TREE_KEY = "tree"
 private const val SERVERS_KEY = "servers"
 private const val CREDENTIALS_KEY = "credentials"
+private const val FACILITIES_KEY = "facilities"
 
 // Shown instead of a stored password: the secret itself is never read into the server dialog.
 private const val PASSWORD_PLACEHOLDER_LENGTH = 8
@@ -62,9 +67,10 @@ private const val PASSWORD_PLACEHOLDER_LENGTH = 8
 private fun folderKey(path: String) = "folder:$path"
 private fun serverKey(profileId: String) = "server:$profileId"
 private fun credentialKey(credentialsId: String) = "credential:$credentialsId"
+private fun facilityKey(facilityId: String) = "facility:$facilityId"
 
-/** A row of the tool window tree: the hidden wrapper, one of the two top-level folders, or an entry. */
-private enum class NodeKind { TREE, SERVERS, FOLDER, SERVER, CREDENTIALS, CREDENTIAL }
+/** A row of the tool window tree: the hidden wrapper, one of the three top-level folders, or an entry. */
+private enum class NodeKind { TREE, SERVERS, FOLDER, SERVER, CREDENTIALS, CREDENTIAL, FACILITIES, FACILITY }
 
 private class ServerProfilesPanel(private val project: Project) : JPanel(BorderLayout()) {
     private val treeModel = DefaultTreeModel(ServerNode(MyMessageBundle.message("folder.root"), kind = NodeKind.SERVERS))
@@ -153,6 +159,7 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
             }
         }
         root.folderChildren.add(credentialsFolder())
+        root.folderChildren.add(facilitiesFolder())
         treeModel.setRoot(root)
         treeModel.reload()
         expandedFolders.forEach { key ->
@@ -168,6 +175,14 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
         ServerNode(MyMessageBundle.message("credentials.root"), "", kind = NodeKind.CREDENTIALS).apply {
             SettingsAccess.credentials(project).forEach { entry ->
                 serverChildren.add(ServerNode(entry.name, "", credential = entry, kind = NodeKind.CREDENTIAL))
+            }
+        }
+
+    /** The facilities folder next to **Servers** and **Credentials**: one row per server type. */
+    private fun facilitiesFolder(): ServerNode =
+        ServerNode(MyMessageBundle.message("facilities.root"), "", kind = NodeKind.FACILITIES).apply {
+            SettingsAccess.facilities(project).forEach { facility ->
+                serverChildren.add(ServerNode(facility.name, "", facility = facility, kind = NodeKind.FACILITY))
             }
         }
 
@@ -187,13 +202,14 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
             }
 
             NodeKind.CREDENTIAL -> node.credential?.let { removeCredential(it) }
+            NodeKind.FACILITY -> node.facility?.let { removeFacility(it) }
             NodeKind.FOLDER -> {
                 if (node.path.isEmpty()) return
                 if (!FolderDeleteDialog(project, node.path).showAndGet()) return
                 deleteFolder(node.path)
             }
 
-            NodeKind.TREE, NodeKind.SERVERS, NodeKind.CREDENTIALS -> Unit
+            NodeKind.TREE, NodeKind.SERVERS, NodeKind.CREDENTIALS, NodeKind.FACILITIES -> Unit
         }
     }
 
@@ -253,9 +269,11 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
         when (node.kind) {
             NodeKind.SERVER -> serverKey(node.profile?.id.orEmpty())
             NodeKind.CREDENTIAL -> credentialKey(node.credential?.id.orEmpty())
+            NodeKind.FACILITY -> facilityKey(node.facility?.id.orEmpty())
             NodeKind.FOLDER -> folderKey(node.path)
             NodeKind.SERVERS -> SERVERS_KEY
             NodeKind.CREDENTIALS -> CREDENTIALS_KEY
+            NodeKind.FACILITIES -> FACILITIES_KEY
             NodeKind.TREE -> TREE_KEY
         }
 
@@ -321,6 +339,8 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
             NodeKind.SERVER -> showServerMenu(node.profile, x, y)
             NodeKind.CREDENTIAL -> showCredentialMenu(node.credential, x, y)
             NodeKind.CREDENTIALS -> showCredentialsFolderMenu(x, y)
+            NodeKind.FACILITY -> showFacilityMenu(node.facility, x, y)
+            NodeKind.FACILITIES -> showFacilitiesFolderMenu(x, y)
             NodeKind.SERVERS -> showServersFolderMenu(x, y)
             NodeKind.TREE -> Unit
         }
@@ -369,7 +389,7 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
             if (!isLocal) {
                 addSeparator()
                 add(JMenu(MyMessageBundle.message("server.context.actions")).apply {
-                    profile.actions.forEach { action ->
+                    effectiveActions(profile).forEach { action ->
                         add(JMenuItem(action.name).apply {
                             addActionListener { executeAction(profile, action) }
                         })
@@ -419,6 +439,29 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
             })
             add(JMenuItem(MyMessageBundle.message("credentials.remove")).apply {
                 addActionListener { removeCredential(credential) }
+            })
+            show(serverTree, x, y)
+        }
+    }
+
+    /** The **Facilities** folder itself: a server type is created from here. */
+    private fun showFacilitiesFolderMenu(x: Int, y: Int) {
+        JPopupMenu().apply {
+            add(JMenuItem(MyMessageBundle.message("facilities.add")).apply {
+                addActionListener { editFacility(null) }
+            })
+            show(serverTree, x, y)
+        }
+    }
+
+    private fun showFacilityMenu(facility: Facility?, x: Int, y: Int) {
+        if (facility == null) return
+        JPopupMenu().apply {
+            add(JMenuItem(MyMessageBundle.message("facility.edit")).apply {
+                addActionListener { editFacility(facility) }
+            })
+            add(JMenuItem(MyMessageBundle.message("facility.remove")).apply {
+                addActionListener { removeFacility(facility) }
             })
             show(serverTree, x, y)
         }
@@ -609,6 +652,30 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
     }
 
     /**
+     * Adds a facility or edits one in the facilities folder. A facility is a server type: its servers pick
+     * it in the server dialog to inherit its mappings and actions.
+     */
+    private fun editFacility(existing: Facility?) {
+        val dialog = FacilityEditDialog(project, existing)
+        if (!dialog.showAndGet()) return
+        val facility = dialog.facility()
+        SettingsAccess.saveFacility(project, facility)
+        refresh()
+        selectNode(facilityKey(facility.id))
+    }
+
+    /**
+     * Removes a facility. When servers still pick it, they are asked about first: the servers are kept and
+     * only the facility is dropped, so each one goes on with its own mappings and actions.
+     */
+    private fun removeFacility(facility: Facility) {
+        val users = SettingsAccess.profilesUsingFacility(project, facility.id)
+        if (users.isNotEmpty() && !FacilityDeleteDialog(project, facility, users).showAndGet()) return
+        SettingsAccess.removeFacility(project, facility.id)
+        refresh()
+    }
+
+    /**
      * Adds an entry or edits the selected one in the credentials folder. The password is typed here, once
      * for every server that picks the entry; blank keeps the stored one.
      */
@@ -768,6 +835,7 @@ private class ServerNode(
     val path: String = name,
     val profile: ServerProfile? = null,
     val credential: CredentialsProfile? = null,
+    val facility: Facility? = null,
     val kind: NodeKind = NodeKind.FOLDER,
 ) : DefaultMutableTreeNode() {
     val folderChildren: MutableList<ServerNode> = mutableListOf()
@@ -851,7 +919,7 @@ private class ServerNodeRenderer : DefaultTreeCellRenderer() {
         component.text = node?.displayName.orEmpty()
         component.icon = when (node?.kind) {
             NodeKind.SERVER -> if (node.profile?.type == ServerType.LOCAL) null else this.leafIcon
-            NodeKind.CREDENTIAL -> this.leafIcon
+            NodeKind.CREDENTIAL, NodeKind.FACILITY -> this.leafIcon
             else -> this.openIcon
         }
         return component
@@ -894,38 +962,33 @@ private class ServerProfileDialog(private val project: Project, private val exis
     private val useRsyncCheckbox = JCheckBox(MyMessageBundle.message("server.useRsync")).apply {
         isSelected = existing?.useRsync ?: SftpSettings.getInstance().newServerUseRsync
     }
-    private val mappingsModel = object : DefaultTableModel(
+    private val tables = MappingActionTables(project)
+    private var formScroll: JBScrollPane? = null
+    private val noFacilityItem = MyMessageBundle.message("facility.none")
+    private val facilityOptions: List<String> =
+        listOf(noFacilityItem) + SftpSettings.getInstance().facilities().map { it.name }
+    private val facilityCombo = JComboBox<String>(facilityOptions.toTypedArray())
+    private val inheritedSection = CollapsibleSection(MyMessageBundle.message("facility.inherited.title"))
+    private val inheritedMappingsModel = object : DefaultTableModel(
         arrayOf(
             MyMessageBundle.message("mapping.local"),
             MyMessageBundle.message("mapping.remote"),
         ),
         0,
     ) {
-        override fun isCellEditable(row: Int, column: Int) = true
+        override fun isCellEditable(row: Int, column: Int) = false
     }
-    private val mappingsTable = JBTable(mappingsModel).apply {
-        toolTipText = MyMessageBundle.message("server.mappings.tooltip")
-        installTableShortcuts(this, mappingsModel) { rows ->
-            rows.map { row -> mappingCells(mappingsModel, row) }
-        }
-    }
-    private val actionsModel = object : DefaultTableModel(
+    private val inheritedMappingsTable = JBTable(inheritedMappingsModel)
+    private val inheritedActionsModel = object : DefaultTableModel(
         arrayOf(
             MyMessageBundle.message("server.action.name"),
             MyMessageBundle.message("server.action.command"),
-            "id",
         ),
         0,
     ) {
-        override fun isCellEditable(row: Int, column: Int) = column < 2
+        override fun isCellEditable(row: Int, column: Int) = false
     }
-    private val actionsTable = JBTable(actionsModel).apply {
-        columnModel.removeColumn(columnModel.getColumn(2))
-        installTableShortcuts(this, actionsModel) { rows ->
-            val takenNames = actions().map { it.name }.toMutableSet()
-            rows.map { row -> actionCells(cloneAction(actionAt(row), takenNames)) }
-        }
-    }
+    private val inheritedActionsTable = JBTable(inheritedActionsModel)
 
     init {
         title =
@@ -938,10 +1001,24 @@ private class ServerProfileDialog(private val project: Project, private val exis
         credentialsCombo.addActionListener { showCredentialsOfSelection() }
         showCredentialsOfSelection()
         if (existing == null) {
-            mappingsModel.addRow(arrayOf("", ""))
+            tables.mappingsModel.addRow(arrayOf("", ""))
         } else {
-            existing.mappings.forEach { mappingsModel.addRow(arrayOf(it.localPath, it.remotePath)) }
-            existing.actions.forEach { actionsModel.addRow(arrayOf(it.name, it.command, it.id)) }
+            existing.mappings.forEach { tables.mappingsModel.addRow(arrayOf(it.localPath, it.remotePath)) }
+            existing.actions.forEach { tables.actionsModel.addRow(arrayOf(it.name, it.command, it.id)) }
+        }
+        if (!isLocal) {
+            val chosenFacilityName =
+                SftpSettings.getInstance().facility(existing?.facilityId.orEmpty())?.name ?: noFacilityItem
+            facilityCombo.selectedIndex = maxOf(0, facilityOptions.indexOf(chosenFacilityName))
+            facilityCombo.toolTipText = MyMessageBundle.message("server.facility.tooltip")
+            facilityCombo.addActionListener { showFacilityInheritance() }
+            // Read-only lists: their rows plus one empty row of height, so the last entry does not sit
+            // flush against the edge.
+            inheritedSection.body.add(RowsAwareScrollPane(inheritedMappingsTable, 680, 1), BorderLayout.NORTH)
+            inheritedSection.body.add(RowsAwareScrollPane(inheritedActionsTable, 680, 1), BorderLayout.CENTER)
+            // The section sits at the very bottom of the scrolled form, so opening it scrolls it into view.
+            inheritedSection.onToggle = { expanded -> if (expanded) scrollInheritedIntoView() }
+            showFacilityInheritance()
         }
         init()
     }
@@ -980,78 +1057,12 @@ private class ServerProfileDialog(private val project: Project, private val exis
     }
 
     override fun createCenterPanel(): JComponent {
-        val mappingPanel = JPanel(BorderLayout()).apply {
-            add(JLabel(MyMessageBundle.message("server.mappings.hint")), BorderLayout.NORTH)
-            add(JBScrollPane(mappingsTable), BorderLayout.CENTER)
-            add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
-                add(JButton(MyMessageBundle.message("mapping.add")).apply {
-                    addActionListener { mappingsModel.addRow(arrayOf("", "")) }
-                })
-                add(JButton(MyMessageBundle.message("mapping.remove")).apply {
-                    addActionListener {
-                        mappingsTable.selectedRows.sortedDescending().forEach(mappingsModel::removeRow)
-                    }
-                })
-                add(JButton(MyMessageBundle.message("mapping.copy")).apply {
-                    addActionListener {
-                        stopEditing()
-                        val mappings = (0 until mappingsModel.rowCount).map { row ->
-                            PathMapping(
-                                localPath = mappingsModel.getValueAt(row, 0)?.toString().orEmpty().trim(),
-                                remotePath = mappingsModel.getValueAt(row, 1)?.toString().orEmpty().trim(),
-                            )
-                        }.filterNot { it.localPath.isBlank() && it.remotePath.isBlank() }
-                        val text = ProfileTransfer.encodeMappings(mappings)
-                        copyToClipboard(text)
-                        UploaderNotifications.info(project, MyMessageBundle.message("mapping.copied", mappings.size))
-                    }
-                })
-                add(JButton(MyMessageBundle.message("mapping.import")).apply {
-                    addActionListener { importMappings() }
-                })
-            }, BorderLayout.SOUTH)
-        }
-        mappingPanel.preferredSize = Dimension(680, 300)
-        val actionsPanel = JPanel(BorderLayout()).apply {
-            add(JBScrollPane(actionsTable), BorderLayout.CENTER)
-            add(JPanel(FlowLayout(FlowLayout.LEFT)).apply {
-                add(JButton(MyMessageBundle.message("server.action.add")).apply {
-                    addActionListener { actionsModel.addRow(arrayOf("", "", UUID.randomUUID().toString())) }
-                })
-                add(JButton(MyMessageBundle.message("server.action.remove")).apply {
-                    addActionListener {
-                        actionsTable.selectedRows.sortedDescending().forEach(actionsModel::removeRow)
-                    }
-                })
-                add(JButton(MyMessageBundle.message("server.action.copy")).apply {
-                    addActionListener {
-                        stopEditing()
-                        val actions = (0 until actionsModel.rowCount).map { row ->
-                            ServerAction(
-                                id = actionsModel.getValueAt(row, 2)?.toString().orEmpty(),
-                                name = actionsModel.getValueAt(row, 0)?.toString().orEmpty().trim(),
-                                command = actionsModel.getValueAt(row, 1)?.toString().orEmpty().trim(),
-                            )
-                        }.filterNot { it.name.isBlank() && it.command.isBlank() }
-                        val text = ProfileTransfer.encodeActions(actions)
-                        copyToClipboard(text)
-                        UploaderNotifications.info(
-                            project,
-                            MyMessageBundle.message("server.action.copied", actions.size)
-                        )
-                    }
-                })
-                add(JButton(MyMessageBundle.message("server.action.import")).apply {
-                    addActionListener { importActions() }
-                })
-            }, BorderLayout.SOUTH)
-        }
-        actionsPanel.preferredSize = Dimension(680, 160)
-
         val builder = FormBuilder.createFormBuilder()
             .addLabeledComponent(MyMessageBundle.message("server.name"), nameField)
         if (!isLocal) {
-            builder.addLabeledComponent(MyMessageBundle.message("server.folder"), folderField)
+            builder
+                .addLabeledComponent(MyMessageBundle.message("server.folder"), folderField)
+                .addLabeledComponent(MyMessageBundle.message("facility.label"), facilityCombo)
         }
         if (isLocal) {
             builder.addLabeledComponent(MyMessageBundle.message("server.local.basePath"), basePathField)
@@ -1070,15 +1081,61 @@ private class ServerProfileDialog(private val project: Project, private val exis
                 .addSeparator()
         }
         builder
-            .addLabeledComponentFillVertically(MyMessageBundle.message("server.mappings"), mappingPanel)
+            .addLabeledComponentFillVertically(MyMessageBundle.message("server.mappings"), tables.mappingPanel())
         if (!isLocal) {
-            builder.addLabeledComponentFillVertically(MyMessageBundle.message("server.actions"), actionsPanel)
+            builder
+                .addLabeledComponentFillVertically(MyMessageBundle.message("server.actions"), tables.actionsPanel())
+                .addComponent(inheritedSection)
         }
-        return builder.panel
+        // The form outgrows the screen once the tables fill up and the inherited section opens, so it
+        // scrolls in a panel of a fixed height instead of stretching the dialog past the desktop.
+        val form = builder.panel
+        val formSize = form.preferredSize
+        val scroll = JBScrollPane(form).apply {
+            verticalScrollBarPolicy = ScrollPaneConstants.VERTICAL_SCROLLBAR_AS_NEEDED
+            horizontalScrollBarPolicy = ScrollPaneConstants.HORIZONTAL_SCROLLBAR_NEVER
+            border = null
+            preferredSize = Dimension(formSize.width + 20, minOf(formSize.height, 640))
+        }
+        formScroll = scroll
+        return scroll
+    }
+
+    /** Scrolls the form to its bottom, where the just-opened inherited section now sits. */
+    private fun scrollInheritedIntoView() {
+        // The expansion revalidates asynchronously: validate the scroll pane here first so its scroll
+        // range already covers the grown form when the bar is pushed down.
+        SwingUtilities.invokeLater {
+            formScroll?.let { scroll ->
+                scroll.validate()
+                val bar = scroll.verticalScrollBar
+                bar.value = (bar.maximum - bar.visibleAmount).coerceAtLeast(bar.minimum)
+            }
+        }
+    }
+
+    private fun selectedFacility(): Facility? =
+        SftpSettings.getInstance().facilityByName(facilityCombo.selectedItem?.toString().orEmpty())
+
+    /**
+     * Keeps the facility views in step with the dropdown: the inherited tables list what the chosen facility
+     * supplies, and the server's own rows repeating a facility path or action name are highlighted because
+     * they replace the facility's entry.
+     */
+    private fun showFacilityInheritance() {
+        val facility = selectedFacility()
+        // A server without a facility has nothing inherited, so the section itself stays out of the dialog.
+        inheritedSection.isVisible = facility != null
+        inheritedMappingsModel.setRowCount(0)
+        inheritedActionsModel.setRowCount(0)
+        facility?.mappings?.forEach { inheritedMappingsModel.addRow(arrayOf(it.localPath, it.remotePath)) }
+        facility?.actions?.forEach { inheritedActionsModel.addRow(arrayOf(it.name, it.command)) }
+        tables.mappingOverrides = facilityMappingKeys(facility)
+        tables.actionOverrides = facilityActionNames(facility)
     }
 
     override fun doOKAction() {
-        stopEditing()
+        tables.stopEditing()
         val validation = validateProfile()
         if (validation != null) {
             setErrorText(validation.message)
@@ -1099,21 +1156,21 @@ private class ServerProfileDialog(private val project: Project, private val exis
         }
 
         val localPaths = mutableSetOf<String>()
-        mappings().forEach { mapping ->
+        tables.mappings().forEach { mapping ->
             val local = PathMappingResolver.normalizeLocal(mapping.localPath)
             if (local.split('/').any { it == ".." }) {
-                return ValidationInfo(MyMessageBundle.message("validation.local.path"), mappingsTable)
+                return ValidationInfo(MyMessageBundle.message("validation.local.path"), tables.mappingsTable)
             }
             if (!localPaths.add(local)) {
-                return ValidationInfo(MyMessageBundle.message("validation.mapping.duplicate", local), mappingsTable)
+                return ValidationInfo(MyMessageBundle.message("validation.mapping.duplicate", local), tables.mappingsTable)
             }
             if (!isLocal) {
                 try {
                     if (!PathMappingResolver.normalizeRemote(mapping.remotePath).startsWith("/")) {
-                        return ValidationInfo(MyMessageBundle.message("validation.remote.absolute"), mappingsTable)
+                        return ValidationInfo(MyMessageBundle.message("validation.remote.absolute"), tables.mappingsTable)
                     }
                 } catch (_: IllegalArgumentException) {
-                    return ValidationInfo(MyMessageBundle.message("validation.remote.path"), mappingsTable)
+                    return ValidationInfo(MyMessageBundle.message("validation.remote.path"), tables.mappingsTable)
                 }
             }
         }
@@ -1149,15 +1206,15 @@ private class ServerProfileDialog(private val project: Project, private val exis
             )
         }
 
-        when (validateServerActions(actions())) {
+        when (validateServerActions(tables.actions())) {
             ServerActionValidationError.BLANK_NAME ->
-                return ValidationInfo(MyMessageBundle.message("validation.action.name.required"), actionsTable)
+                return ValidationInfo(MyMessageBundle.message("validation.action.name.required"), tables.actionsTable)
 
             ServerActionValidationError.BLANK_COMMAND ->
-                return ValidationInfo(MyMessageBundle.message("validation.action.command.required"), actionsTable)
+                return ValidationInfo(MyMessageBundle.message("validation.action.command.required"), tables.actionsTable)
 
             ServerActionValidationError.DUPLICATE_NAME ->
-                return ValidationInfo(MyMessageBundle.message("validation.action.name.duplicate"), actionsTable)
+                return ValidationInfo(MyMessageBundle.message("validation.action.name.duplicate"), tables.actionsTable)
 
             null -> Unit
         }
@@ -1165,7 +1222,7 @@ private class ServerProfileDialog(private val project: Project, private val exis
     }
 
     fun profile(credential: CredentialsProfile?): ServerProfile {
-        stopEditing()
+        tables.stopEditing()
         return ServerProfile(
             id = profileId,
             name = nameField.text.trim(),
@@ -1177,8 +1234,9 @@ private class ServerProfileDialog(private val project: Project, private val exis
             useRsync = if (isLocal) false else useRsyncCheckbox.isSelected,
             type = if (isLocal) ServerType.LOCAL else ServerType.SFTP,
             basePath = if (isLocal) basePathField.text.trim() else "",
-            mappings = mappings().toMutableList(),
-            actions = if (isLocal) mutableListOf() else actions().toMutableList(),
+            facilityId = if (isLocal) "" else selectedFacility()?.id.orEmpty(),
+            mappings = tables.mappings().toMutableList(),
+            actions = if (isLocal) mutableListOf() else tables.actions().toMutableList(),
         )
     }
 
@@ -1224,64 +1282,6 @@ private class ServerProfileDialog(private val project: Project, private val exis
     private fun selectedCredential(): CredentialsProfile? =
         if (creatingNewCredentials()) null
         else SftpSettings.getInstance().credentialByName(selectedCredentialName())
-
-    private fun importMappings() {
-        val dialog = ImportLinesDialog(
-            project,
-            MyMessageBundle.message("mapping.import"),
-            MyMessageBundle.message("import.mappings.hint")
-        )
-        if (!dialog.showAndGet()) return
-        val mappings = ProfileTransfer.decodeMappings(dialog.text())
-        mappings.forEach { mappingsModel.addRow(arrayOf(it.localPath, it.remotePath)) }
-        UploaderNotifications.info(project, MyMessageBundle.message("mapping.imported", mappings.size))
-    }
-
-    private fun importActions() {
-        val dialog = ImportLinesDialog(
-            project,
-            MyMessageBundle.message("server.action.import"),
-            MyMessageBundle.message("import.actions.hint")
-        )
-        if (!dialog.showAndGet()) return
-        val actions = ProfileTransfer.decodeActions(dialog.text())
-        actions.forEach { actionsModel.addRow(arrayOf(it.name, it.command, it.id)) }
-        UploaderNotifications.info(project, MyMessageBundle.message("server.action.imported", actions.size))
-    }
-
-    private fun mappings(): List<PathMapping> =
-        (0 until mappingsModel.rowCount).map { row -> pathMapping(mappingsModel, row) }
-            .filterNot { it.localPath.isBlank() && it.remotePath.isBlank() }
-
-    private fun pathMapping(model: DefaultTableModel, row: Int): PathMapping =
-        PathMapping(
-            localPath = PathMappingResolver.normalizeLocal(model.getValueAt(row, 0)?.toString().orEmpty()),
-            remotePath = model.getValueAt(row, 1)?.toString().orEmpty().trim(),
-        )
-
-    private fun mappingCells(model: DefaultTableModel, row: Int): Array<String> =
-        arrayOf(
-            model.getValueAt(row, 0)?.toString().orEmpty(),
-            model.getValueAt(row, 1)?.toString().orEmpty(),
-        )
-
-    private fun actions(): List<ServerAction> =
-        (0 until actionsModel.rowCount).map { row -> actionAt(row) }
-
-    private fun actionAt(row: Int): ServerAction =
-        ServerAction(
-            id = actionsModel.getValueAt(row, 2)?.toString().orEmpty(),
-            name = actionsModel.getValueAt(row, 0)?.toString().orEmpty().trim(),
-            command = actionsModel.getValueAt(row, 1)?.toString().orEmpty().trim(),
-        )
-
-    private fun actionCells(action: ServerAction): Array<String> =
-        arrayOf(action.name, action.command, action.id)
-
-    private fun stopEditing() {
-        if (mappingsTable.isEditing) mappingsTable.cellEditor.stopCellEditing()
-        if (actionsTable.isEditing) actionsTable.cellEditor.stopCellEditing()
-    }
 }
 
 /** Adds a credentials entry or edits one from the **Credentials** folder. */
@@ -1352,7 +1352,7 @@ private class CredentialsEditDialog(private val project: Project, private val ex
     }
 }
 
-private class ImportLinesDialog(
+internal class ImportLinesDialog(
     project: Project,
     dialogTitle: String,
     private val hint: String,
