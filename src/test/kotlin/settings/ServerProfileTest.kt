@@ -8,10 +8,19 @@ import org.junit.Test
 
 class ServerProfileTest {
     @Test
-    fun `persistent profile contains no password field`() {
+    fun `persistent profile keeps only a credentials reference`() {
         val fieldNames = ServerProfile::class.java.declaredFields.map { it.name.lowercase() }
 
-        assertFalse(fieldNames.any { it.contains("password") || it.contains("credential") })
+        assertFalse(fieldNames.any { it.contains("password") })
+        assertTrue(fieldNames.contains("credentialsid"))
+    }
+
+    @Test
+    fun `credentials entry stores a username without a password`() {
+        val fieldNames = CredentialsProfile::class.java.declaredFields.map { it.name.lowercase() }
+
+        assertFalse(fieldNames.any { it.contains("password") })
+        assertTrue(fieldNames.contains("username"))
     }
 
     @Test

@@ -3,6 +3,7 @@ package org.kavo.uploader.transfer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.kavo.uploader.settings.CredentialsProfile
 import org.kavo.uploader.settings.PathMapping
 import org.kavo.uploader.settings.ServerAction
 
@@ -72,4 +73,30 @@ class ProfileTransferTest {
 
         assertEquals(listOf("Restart"), actions.map { it.name })
      }
+
+    @Test
+    fun `credentials round trip carries name and username only`() {
+        val credentials = listOf(
+            CredentialsProfile(id = "old-1", name = "prod", username = "deploy"),
+            CredentialsProfile(id = "old-2", name = "staging", username = "release"),
+         )
+
+        val text = ProfileTransfer.encodeCredentials(credentials)
+
+        assertEquals("prod -> deploy\nstaging -> release", text)
+        val decoded = ProfileTransfer.decodeCredentials(text)
+        assertEquals(listOf("prod", "staging"), decoded.map { it.name })
+        assertEquals(listOf("deploy", "release"), decoded.map { it.username })
+    }
+
+    @Test
+    fun `decoded credentials get fresh ids`() {
+        val decoded = ProfileTransfer.decodeCredentials(
+            "prod -> deploy\n\nName only\n -> blank username\n"
+         )
+
+        assertEquals(listOf("prod"), decoded.map { it.name })
+        assertTrue(decoded.all { it.id.isNotBlank() })
+        assertTrue(decoded.map { it.id }.toSet().size == decoded.size)
+    }
 }

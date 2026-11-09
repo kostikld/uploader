@@ -7,10 +7,12 @@ SFTP Uploader is an IntelliJ IDEA plugin for uploading project files to remote s
 - IntelliJ IDEA 2023.3 or later, with Java support enabled (the plugin resolves Java code, so it does not
    load in an IDE without it)
 - Network access to the target server over SSH/SFTP
-- A username and password accepted by that server
+- A username and password accepted by that server, configured once as credentials and picked by the servers
+   that use it
 - `rsync` and `ssh` on your local machine when using rsync uploads
 
-Passwords are stored in the IntelliJ Password Safe, not in the project configuration.
+Credentials are configured once and shared by servers. A password is stored in the IntelliJ Password Safe
+under the credentials entry it belongs to, never in the project configuration.
 
 > [!WARNING]
 > The plugin currently accepts server host keys automatically. Use it only with servers and networks you trust.
@@ -19,7 +21,9 @@ Passwords are stored in the IntelliJ Password Safe, not in the project configura
 
 1. Open the **SFTP Uploader** tool window.
 2. Select **Add**.
-3. Enter a profile name, host, port, username, and password.
+3. Enter a profile name, host and port, then pick an entry from the **Credentials** dropdown - or pick
+   **<new>** and type a username and password, which creates an entry for this server. A picked entry shows
+   its username and password read-only: they belong to the entry, not to the server.
 4. Add one or more path mappings:
    - **Local path or pattern**: the local directory, relative to the project root, or a pattern
      that selects files by name.
@@ -33,6 +37,35 @@ For example, this mapping uploads `src/main/resources/app.yml` to `/var/www/app/
 | `/` | `/var/www/app` |
 
 When mappings overlap, the most specific local path is used.
+
+### Share credentials between servers
+
+A username several servers use is configured once instead of typed into every profile. The tool window tree
+has two folders: **Servers** and **Credentials**. One row in **Credentials** is one username that any number
+of servers can pick, and the tree shows it as `name — username`.
+
+- Right-click the **Credentials** folder for **Add Credentials**, **Copy Credentials** and
+   **Import Credentials**; right-click an entry for **Edit Credentials** and **Remove Credentials**.
+   `Delete` removes the selected entry.
+- The entry dialog takes a name, a username and a password, and says whether a password is already stored.
+   Leaving the password blank keeps the stored one.
+- In the server dialog, a picked entry fills the username and shows the password as `********`, both
+   read-only. Choose **<new>** in that dropdown when the entry does not exist yet; the entry you chose last is
+   already selected for a new server.
+- With **<new>** chosen, the **Safe for others** box decides what happens to the typed username. On (the
+   default, and it remembers your last choice) the username becomes an entry in the **Credentials** folder that
+   other servers can pick. Off keeps the credentials with this server alone: no entry is created and the
+   password is stored under the server itself.
+- Editing an entry's username keeps the entry: every server picking it follows the new username.
+- Removing an entry that servers still pick asks first, naming them. Confirming deletes the entry and its
+   password and leaves those servers without credentials - they are listed with their old username until you
+   give them new ones in the server dialog.
+- **Copy Credentials** puts the list on the clipboard as `name -> username`, and **Import Credentials** reads
+   that format back. A password never leaves the Password Safe, so an imported entry needs one set with
+   **Edit Credentials**.
+
+Servers configured before credentials entries existed keep working: they were given an entry named after their
+username, and their stored password is read from where it was saved until it is typed in again.
 
 ### Fnmatch patterns
 
@@ -160,15 +193,16 @@ Only save and run commands you trust: actions execute on the remote server as th
 Use the key the editor uses for "Duplicate Line or Selection": `Cmd+D` on macOS, `Ctrl+D` on Windows and
 Linux. It clones whatever is selected:
 
-- **Server**: select it in the tool window and press the key. The copy keeps the host, port, username,
-   rsync setting, folder, path mappings and actions, gets a new id, and the stored
-   password is copied to it. Its name continues the sequence: `serve` -> `serve(1)` -> `serve(2)`.
+- **Server**: select it in the tool window and press the key. The copy keeps the host, port, credentials,
+   rsync setting, folder, path mappings and actions, and gets a new id: both servers authenticate through the
+   same credentials entry, so no password is copied. Its name continues the sequence: `serve` -> `serve(1)` ->
+   `serve(2)`.
 - **Path mapping**: in the server dialog, copies of the selected rows are inserted below the selection.
    Local paths and patterns must stay unique, so edit a copy before saving.
 - **Action**: the copy is inserted below with a new id and a sequenced name, since action names must be
    unique: `Deploy` -> `Deploy(1)`.
 
-The **Local** server entry and folders cannot be cloned - edit or rename them instead.
+The **Local** server entry, folders and credentials entries cannot be cloned - edit or add them instead.
 
 ### Remove with Delete
 

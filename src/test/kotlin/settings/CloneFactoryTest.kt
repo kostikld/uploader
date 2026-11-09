@@ -26,6 +26,33 @@ class CloneFactoryTest {
     }
 
     @Test
+    fun `profile clone shares its credentials entry`() {
+        val source = ServerProfile(
+            id = "source-id",
+            name = "serve",
+            username = "deploy",
+            credentialsId = "entry-id",
+        )
+
+        val clone = cloneProfile(source, listOf(source.name))
+
+        assertEquals("entry-id", clone.credentialsId)
+        assertEquals("deploy", clone.username)
+        assertNotEquals(source.id, clone.id)
+    }
+
+    @Test
+    fun `a cloned entry is named after the family and gets a new id`() {
+        val entry = CredentialsProfile(id = "entry-id", name = "deploy", username = "deploy")
+
+        val clone = cloneCredential(entry, listOf(entry.name))
+
+        assertEquals("deploy(1)", clone.name)
+        assertEquals("deploy", clone.username)
+        assertNotEquals(entry.id, clone.id)
+    }
+
+    @Test
     fun `profile clone keeps the configured connection and gets a new id`() {
         val source = ServerProfile(
             id = "source-id",

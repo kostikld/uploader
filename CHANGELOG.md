@@ -4,6 +4,32 @@
 
 ## Unreleased
 
+- A username is configured once as a **credentials** entry and picked by any number of servers, instead of typing
+   a username and password into every server profile. The tool window tree now has two folders, **Servers** and
+   **Credentials**; right-click the credentials folder or one of its entries to add, edit, remove, copy or import
+   them, and the server dialog has a **Credentials** dropdown: choose a saved entry, or the first item to create a
+   new one for this server.
+- In the server dialog a picked entry shows its username and password - as `********` - read-only, because both
+   belong to the entry. The entry dialog is where its password is typed or changed; leaving it blank keeps the
+   stored one.
+- Servers configured earlier keep working: each one whose username was inline was given an entry named after that
+   username - servers sharing a username share one entry - and its stored password is still read from where it was
+   saved until it is typed in again.
+- Removing a server keeps its credentials entry for the next server to pick. Removing an entry that servers
+   still pick asks for confirmation and names them: the entry and its password are deleted and those servers are
+   left without credentials, rather than the deletion being blocked.
+- The server dialog has a **Safe for others** box, shown only for the new-credentials choice. On (the default,
+   and the dialog remembers the last choice) the typed username becomes an entry in the **Credentials** folder;
+   off keeps the username and password with that one server.
+- A new server starts with the credentials entry chosen last.
+- Cloning a server keeps authenticating through the same entry, so no password is copied.
+- Credentials entries are copied to the clipboard and imported as `name -> username`; the password never leaves
+   the IntelliJ Password Safe.
+- The **Servers** folder itself takes a right-click for **Add Folder**, since it is now a folder in the tree rather
+   than its hidden root.
+
+## 1.0.15 - 2026-11-06
+
 - The dialog has an **Analyze Constants Changes** button: it compares the listed Java files with their earlier
    version, finds the constants whose value differs, and adds the classes that read them to the list below. It is hidden while
    **Upload compiled classes for Java files** is off or when none of the listed files comes from a Java file.

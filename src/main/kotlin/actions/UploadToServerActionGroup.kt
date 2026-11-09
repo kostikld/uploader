@@ -91,7 +91,7 @@ private class UploadToProfileAction(private val profile: ServerProfile) : AnActi
                            )
                         return
                        }
-                    val password = PasswordStore.get(profile.id)?.toByteArray()
+                    val password = PasswordStore.passwordBytes(profile)
                     if (password == null) {
                         UploaderNotifications.error(
                             project,

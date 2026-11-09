@@ -27,6 +27,15 @@ fun cloneActions(actions: List<ServerAction>, takenNames: Collection<String>): L
     return actions.map { cloneAction(it, taken) }
 }
 
+fun cloneCredential(credential: CredentialsProfile, takenNames: Collection<String>): CredentialsProfile {
+    val taken = takenNames.toMutableSet()
+    return CredentialsProfile(
+        id = UUID.randomUUID().toString(),
+        name = uniqueCloneName(credential.name, taken).also { taken.add(it) },
+        username = credential.username,
+    )
+}
+
 fun cloneProfile(profile: ServerProfile, takenNames: Collection<String>): ServerProfile =
     ServerProfile(
         id = UUID.randomUUID().toString(),
@@ -35,6 +44,8 @@ fun cloneProfile(profile: ServerProfile, takenNames: Collection<String>): Server
         host = profile.host,
         port = profile.port,
         username = profile.username,
+        // The clone authenticates through the same credentials entity as its source, so no secret is copied.
+        credentialsId = profile.credentialsId,
         useRsync = profile.useRsync,
         type = profile.type,
         basePath = profile.basePath,

@@ -294,15 +294,12 @@ private fun uploadSelected(
                     )
                     return
                 }
-                if (!isLocal) {
-                    val password = PasswordStore.get(profile.id)?.toByteArray()
-                    if (password == null) {
-                        UploaderNotifications.error(
-                            project,
-                            MyMessageBundle.message("error.password.missing", profile.name),
-                        )
-                        return
-                    }
+                if (!isLocal && PasswordStore.passwordBytes(profile) == null) {
+                    UploaderNotifications.error(
+                        project,
+                        MyMessageBundle.message("error.password.missing", profile.name),
+                    )
+                    return
                 }
                 val local = UploadStrategy { _, _, reqs, cancel ->
                     service.copyLocal(reqs, cancel)
@@ -315,7 +312,7 @@ private fun uploadSelected(
                 }
                 uploadWithStrategy(
                     profile,
-                    if (isLocal) null else PasswordStore.get(profile.id)?.toByteArray(),
+                    if (isLocal) null else PasswordStore.passwordBytes(profile),
                     requests,
                     indicator::checkCanceled,
                     local,
