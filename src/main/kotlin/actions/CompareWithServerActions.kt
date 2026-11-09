@@ -152,7 +152,7 @@ private class CompareWithProfileAction(
         missingCompiled: List<String>,
         indicator: ProgressIndicator,
     ) {
-        val password = PasswordStore.get(profile.id)?.toByteArray()
+        val password = PasswordStore.passwordBytes(profile)
         if (password == null) {
             UploaderNotifications.error(project, MyMessageBundle.message("error.password.missing", profile.name))
             return

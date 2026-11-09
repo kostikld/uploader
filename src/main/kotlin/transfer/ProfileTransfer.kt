@@ -1,5 +1,6 @@
 package org.kavo.uploader.transfer
 
+import org.kavo.uploader.settings.CredentialsProfile
 import org.kavo.uploader.settings.PathMapping
 import org.kavo.uploader.settings.ServerAction
 import java.util.UUID
@@ -21,6 +22,17 @@ object ProfileTransfer {
             .filter { (name, command) -> name.isNotBlank() && command.isNotBlank() }
             .map { (name, command) ->
                 ServerAction(id = UUID.randomUUID().toString(), name = name, command = command)
+            }
+
+    // Only the username travels: a copied credentials entry always gets its password typed again.
+    fun encodeCredentials(credentials: List<CredentialsProfile>): String =
+        credentials.joinToString("\n") { "${it.name}$SEPARATOR${it.username}" }
+
+    fun decodeCredentials(text: String): List<CredentialsProfile> =
+        parseLines(text)
+            .filter { (name, username) -> name.isNotBlank() && username.isNotBlank() }
+            .map { (name, username) ->
+                CredentialsProfile(id = UUID.randomUUID().toString(), name = name, username = username)
             }
 
     private fun parseLines(text: String): List<Pair<String, String>> =
