@@ -42,6 +42,15 @@ class CloneFactoryTest {
     }
 
     @Test
+    fun `profile clone inherits from the same facility`() {
+        val source = ServerProfile(id = "source-id", name = "serve", facilityId = "facility-id")
+
+        val clone = cloneProfile(source, listOf(source.name))
+
+        assertEquals("facility-id", clone.facilityId)
+    }
+
+    @Test
     fun `a cloned entry is named after the family and gets a new id`() {
         val entry = CredentialsProfile(id = "entry-id", name = "deploy", username = "deploy")
 

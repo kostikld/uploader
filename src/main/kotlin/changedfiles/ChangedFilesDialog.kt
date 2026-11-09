@@ -11,6 +11,7 @@ import org.kavo.uploader.MyMessageBundle
 import org.kavo.uploader.settings.PathMapping
 import org.kavo.uploader.settings.ServerProfile
 import org.kavo.uploader.settings.ServerType
+import org.kavo.uploader.settings.effectiveMappings
 import java.awt.*
 import java.nio.file.Path
 import javax.swing.*
@@ -86,7 +87,7 @@ class ChangedFilesDialog(
         }
 
         server = initialServer(data.servers, data.selectedServer)
-        mappings = server?.mappings.orEmpty()
+        mappings = server?.let { effectiveMappings(it) }.orEmpty()
         rowsByCheck.forEach { entry ->
             val key = rowKey(entry.row)
             if (rowIsEnabled(entry.row, data.projectRoot, mappings) &&
@@ -103,7 +104,7 @@ class ChangedFilesDialog(
                 .setRenderer(ServerNameRenderer())
                 .setItemChosenCallback { next ->
                     server = next
-                    mappings = next?.mappings.orEmpty()
+                    mappings = next?.let { effectiveMappings(it) }.orEmpty()
                     serverButton.text = next?.name.orEmpty()
                     applyState()
                 }

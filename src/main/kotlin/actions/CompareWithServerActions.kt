@@ -24,6 +24,7 @@ import org.kavo.uploader.UploaderNotifications
 import org.kavo.uploader.settings.PasswordStore
 import org.kavo.uploader.settings.ServerProfile
 import org.kavo.uploader.settings.SftpSettings
+import org.kavo.uploader.settings.effectiveMappings
 import org.kavo.uploader.upload.ClassFileExpander
 import org.kavo.uploader.upload.JavaClassResolver
 import org.kavo.uploader.upload.PasswordAuthentication
@@ -117,8 +118,9 @@ private class CompareWithProfileAction(
                     } else {
                         files
                     }
+                    val mappings = effectiveMappings(profile)
                     val pairs = expanded.mapNotNull { file ->
-                        PathMappingResolver.resolve(projectRoot, file, profile.mappings)?.let { file to it }
+                        PathMappingResolver.resolve(projectRoot, file, mappings)?.let { file to it }
                     }
                     when {
                         pairs.isNotEmpty() -> compareFiles(project, pairs, profile, vFiles, missingCompiled, indicator)

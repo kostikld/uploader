@@ -13,6 +13,7 @@ import com.intellij.openapi.project.Project
 import org.kavo.uploader.MyMessageBundle
 import org.kavo.uploader.UploaderNotifications
 import org.kavo.uploader.settings.SftpSettings
+import org.kavo.uploader.settings.effectiveMappings
 import org.kavo.uploader.upload.ClassFileExpander
 import org.kavo.uploader.upload.JavaClassResolver
 import org.kavo.uploader.upload.PathMappingResolver
@@ -130,11 +131,12 @@ internal fun resolveCopyRequests(
     val basePath = project.basePath ?: return null
     val projectRoot = Paths.get(basePath)
     val expanded = ClassFileExpander.expand(files, SftpSettings.getInstance().withInnerClasses)
+    val mappings = effectiveMappings(profile)
     val requests = expanded.mapNotNull { file ->
         val target = if (profile.type == org.kavo.uploader.settings.ServerType.LOCAL)
-            PathMappingResolver.resolveLocal(projectRoot, file, profile.mappings, profile.basePath)
+            PathMappingResolver.resolveLocal(projectRoot, file, mappings, profile.basePath)
         else
-            PathMappingResolver.resolve(projectRoot, file, profile.mappings)
+            PathMappingResolver.resolve(projectRoot, file, mappings)
         target ?: return@mapNotNull null
         UploadRequest(file, target)
     }

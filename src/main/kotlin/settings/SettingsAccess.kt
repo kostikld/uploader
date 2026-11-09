@@ -36,6 +36,20 @@ object SettingsAccess {
     fun resolveCredential(project: Project?, selection: CredentialSelection?): CredentialsProfile? =
         SftpSettings.getInstance().resolveCredential(selection)
 
+    fun facilities(project: Project?): List<Facility> =
+        SftpSettings.getInstance().facilities()
+
+    fun saveFacility(project: Project?, facility: Facility) {
+        SftpSettings.getInstance().saveFacility(facility)
+    }
+
+    fun removeFacility(project: Project?, facilityId: String) {
+        SftpSettings.getInstance().removeFacility(facilityId)
+    }
+
+    fun profilesUsingFacility(project: Project?, facilityId: String): List<ServerProfile> =
+        SftpSettings.getInstance().profilesUsingFacility(facilityId)
+
     fun addFolder(project: Project?, name: String): Boolean =
         SftpSettings.getInstance().addFolder(name)
 

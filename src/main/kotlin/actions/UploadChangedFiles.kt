@@ -22,6 +22,7 @@ import org.kavo.uploader.changedfiles.rowKey
 import org.kavo.uploader.settings.PasswordStore
 import org.kavo.uploader.settings.SftpSettings
 import org.kavo.uploader.settings.SettingsAccess
+import org.kavo.uploader.settings.effectiveMappings
 import org.kavo.uploader.upload.*
 import java.io.File
 import java.nio.file.Files
@@ -257,11 +258,12 @@ private fun uploadSelected(
         dedupeRows(selectedRows).map { it.uploadPath },
         settings.withInnerClasses,
     )
+    val mappings = effectiveMappings(profile)
     val requests = expanded.mapNotNull { path ->
         val remote = if (profile.type == org.kavo.uploader.settings.ServerType.LOCAL)
-            PathMappingResolver.resolveLocal(data.projectRoot, path, profile.mappings, profile.basePath)
+            PathMappingResolver.resolveLocal(data.projectRoot, path, mappings, profile.basePath)
         else
-            PathMappingResolver.resolve(data.projectRoot, path, profile.mappings)
+            PathMappingResolver.resolve(data.projectRoot, path, mappings)
         remote ?: return@mapNotNull null
         UploadRequest(path, remote)
     }
@@ -280,12 +282,12 @@ private fun uploadSelected(
                         return
                     }
                     val archivePath =
-                        resolveArchivePath(data.projectRoot, archiveName, profile.mappings, profile.basePath)
+                        resolveArchivePath(data.projectRoot, archiveName, mappings, profile.basePath)
                     service.zipLocal(
                         data.projectRoot,
                         archivePath,
                         requests,
-                        profile.mappings,
+                        mappings,
                         indicator::checkCanceled,
                     )
                     UploaderNotifications.info(

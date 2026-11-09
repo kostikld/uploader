@@ -49,6 +49,8 @@ fun cloneProfile(profile: ServerProfile, takenNames: Collection<String>): Server
         useRsync = profile.useRsync,
         type = profile.type,
         basePath = profile.basePath,
+        // The clone inherits from the same facility as its source.
+        facilityId = profile.facilityId,
         mappings = profile.mappings.map { cloneMapping(it) }.toMutableList(),
         actions = profile.actions.map { cloneAction(it) }.toMutableList(),
     )
