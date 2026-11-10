@@ -23,10 +23,14 @@ name: Release
 # without failing the build: such a release ships with empty change notes and gets no heading, and the
 # last step warns about it.
 #
-# Requires the `JB_MARKETPLACE_TOKEN` repository secret: build.gradle.kts reads that exact variable name
-# as the intellijPlatform.publishing token. The run writes to `master` twice - the bump commit, then the
-# stamped changelog - so the GitHub Actions app (id 15368) must be in the `master` ruleset bypass list.
-# Pushes made by that app never start another run of this workflow, which is fine because a run publishes
+# Requires two repository secrets: `JB_MARKETPLACE_TOKEN` (build.gradle.kts reads that exact variable
+# name as the intellijPlatform.publishing token) and `MASTER_PUSH_TOKEN` (a fine-grained PAT of the repo
+# owner, passed to the checkout so both writes to `master` - the bump commit, then the stamped changelog -
+# push as an account the `master` ruleset lets bypass: the repo admin). The default GITHUB_TOKEN cannot
+# push: the GitHub Actions app cannot become a ruleset bypass actor on a personal account ("Actor GitHub
+# Actions integration must be part of the ruleset source or owner organization"), and classic branch
+# protection offers no bypass list outside organizations. A push by that owner starts no further run -
+# this workflow triggers on PR close and manual dispatch only - which is fine because a run publishes
 # the version it bumped to and never waits for a follow-up run.
 
 on:
@@ -45,7 +49,7 @@ on:
         options: [release, publish]
 
 permissions:
-  contents: write # push the bump commit and the stamped changelog to master
+  contents: write # API scope for the run; the two master pushes authenticate with MASTER_PUSH_TOKEN
 
 jobs:
   release:
@@ -58,6 +62,9 @@ jobs:
           # The merged state of master, not the PR head: the release is what master ended up with.
           ref: ${{ github.event.pull_request.merge_commit_sha || 'master' }}
           fetch-depth: 0
+          # persist-credentials (default true) writes this token into the remote URL, so the bare
+          # `git push origin HEAD:refs/heads/master` below pushes as the owner, not as the Actions app.
+          token: ${{ secrets.MASTER_PUSH_TOKEN }}
 
       - uses: actions/setup-java@v6
         with:
@@ -136,10 +143,18 @@ jobs:
             # Only gradle.properties is committed: CHANGELOG.md is stamped by Gradle in the publish step.
             git add gradle.properties
             git commit --quiet -m "chore: bump version to $new"
-            if git push --quiet origin "HEAD:refs/heads/master"; then
+            out=$(git push --quiet origin "HEAD:refs/heads/master" 2>&1) && rc=0 || rc=$?
+            if [ $rc -eq 0 ]; then
               echo "version: $current -> $new" | tee -a "$GITHUB_STEP_SUMMARY"
               pushed=1
               break
+            fi
+            printf '%s\n' "$out"
+            # A protection rejection would repeat on every attempt - it is not master moving, and the
+            # 2026-11-10 release run burned all five retries on the same GH006. Fail with the cause.
+            if printf '%s' "$out" | grep -qiE 'GH006|protected branch|must be made through a pull request|repository rule violations'; then
+              echo "::error::branch protection rejected the push by MASTER_PUSH_TOKEN's owner - check that the classic master rule was deleted and the \`master\` ruleset lets the repo admin bypass" | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 1
             fi
             echo "master moved during the run: recomputing the bump (attempt $attempt)" | tee -a "$GITHUB_STEP_SUMMARY"
           done
@@ -184,9 +199,16 @@ jobs:
           # patchChangelog ran as a dependency of publishPlugin and stamped the file in the checkout.
           git add CHANGELOG.md
           git commit --quiet -m "docs: changelog for v$v"
-          # The bump step already landed on the master tip, so a rejected push here means another
-          # release raced this one: replay the changelog commit instead of forcing over it.
-          if ! git push --quiet origin "HEAD:refs/heads/master"; then
+          # A rejected push here means either another release raced this one (replay the changelog
+          # commit instead of forcing over it) or protection rejected the push (replaying cannot help):
+          # tell the two apart from the remote's own message.
+          out=$(git push --quiet origin "HEAD:refs/heads/master" 2>&1) && rc=0 || rc=$?
+          if [ $rc -ne 0 ]; then
+            printf '%s\n' "$out"
+            if printf '%s' "$out" | grep -qiE 'GH006|protected branch|must be made through a pull request|repository rule violations'; then
+              echo "::error::branch protection rejected the push by MASTER_PUSH_TOKEN's owner - fix the \`master\` ruleset bypass, then re-run with mode=publish" | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 1
+            fi
             git fetch --quiet origin master:refs/remotes/origin/master
             if git rebase --quiet refs/remotes/origin/master; then
               git push --quiet origin "HEAD:refs/heads/master" || {

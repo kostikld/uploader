@@ -12,7 +12,6 @@ import com.intellij.openapi.ui.ValidationInfo
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
 import com.intellij.ui.JBColor
-import com.intellij.ui.MouseDragHelper
 import com.intellij.ui.PopupHandler
 import com.intellij.ui.components.JBPasswordField
 import com.intellij.ui.components.JBScrollPane
@@ -34,7 +33,10 @@ import org.kavo.uploader.ui.RowsAwareScrollPane
 import org.kavo.uploader.ui.installCloneShortcut
 import org.kavo.uploader.upload.*
 import java.awt.*
+import java.awt.datatransfer.DataFlavor
 import java.awt.datatransfer.StringSelection
+import java.awt.datatransfer.Transferable
+import java.awt.datatransfer.UnsupportedFlavorException
 import java.util.*
 import javax.swing.*
 import javax.swing.table.DefaultTableModel
@@ -74,17 +76,32 @@ private enum class NodeKind { TREE, SERVERS, FOLDER, SERVER, CREDENTIALS, CREDEN
 
 private class ServerProfilesPanel(private val project: Project) : JPanel(BorderLayout()) {
     private val treeModel = DefaultTreeModel(ServerNode(MyMessageBundle.message("folder.root"), kind = NodeKind.SERVERS))
-    private val serverTree = JTree(treeModel).apply {
+    private val nodeRenderer = ServerNodeRenderer()
+    // The tree stretches to the whole viewport: a drop on the empty background below the rows then
+    // lands on the tree as well, and means moving the server out of every folder.
+    private val serverTree = object : JTree(treeModel) {
+        override fun getPreferredSize(): Dimension {
+            val size = super.getPreferredSize()
+            val viewport = parent as? JViewport ?: return size
+            return Dimension(
+                maxOf(size.width, viewport.extentSize.width),
+                maxOf(size.height, viewport.extentSize.height),
+            )
+        }
+    }.apply {
         isRootVisible = false
         setShowsRootHandles(true)
         setEditable(false)
         background = serverPanelBackground
-        cellRenderer = ServerNodeRenderer()
+        cellRenderer = nodeRenderer
+        dragEnabled = true
+        transferHandler = ServerTreeDragHandler(this@ServerProfilesPanel)
         addMouseListener(object : PopupHandler() {
             override fun invokePopup(component: Component, x: Int, y: Int) {
                 showContextMenu(x, y)
             }
         })
+        addTreeSelectionListener { this@ServerProfilesPanel.setDragHighlight(null) }
         addKeyListener(object : java.awt.event.KeyAdapter() {
             override fun keyPressed(event: java.awt.event.KeyEvent) {
                 if (event.keyCode == java.awt.event.KeyEvent.VK_DELETE || event.keyCode == java.awt.event.KeyEvent.VK_BACK_SPACE) {
@@ -104,7 +121,6 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
             viewport.background = serverPanelBackground
         }, BorderLayout.CENTER)
         add(menuPanel, BorderLayout.SOUTH)
-        serverTree.addMouseListener(DragDropTracker(serverTree, this, project))
         refresh()
     }
 
@@ -124,6 +140,7 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
     }
 
     fun refresh() {
+        nodeRenderer.highlightNode = null
         remove(menuPanel)
         menuPanel = buildMenuPanel()
         add(menuPanel, BorderLayout.SOUTH)
@@ -496,6 +513,35 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
         refresh()
     }
 
+    /**
+     * The node a dragged server would move to when dropped at the screen point:
+     * a folder or the **Servers** root means that folder, a server row means its folder, and the
+     * empty background means the **Servers** root. Null when the drop is not allowed.
+     */
+    fun resolveDropTarget(pointOnScreen: Point?, draggedId: String): ServerNode? {
+        if (pointOnScreen == null) return null
+        val point = Point(pointOnScreen)
+        SwingUtilities.convertPointFromScreen(point, serverTree)
+        val node = serverTree.getPathForLocation(point.x, point.y)?.lastPathComponent as? ServerNode
+            ?: serversRoot()
+            ?: return null
+        return when {
+            node.isMoveTarget() -> node
+            node.kind == NodeKind.SERVER && node.profile?.id != draggedId -> node
+            else -> null
+        }
+    }
+
+    /** Paints the row the dragged server would land on, or clears the mark. Repaints only on change. */
+    fun setDragHighlight(target: ServerNode?) {
+        if (nodeRenderer.highlightNode === target) return
+        nodeRenderer.highlightNode = target
+        serverTree.repaint()
+    }
+
+    private fun serversRoot(): ServerNode? =
+        (treeModel.root as? ServerNode)?.folderChildren?.firstOrNull { it.kind == NodeKind.SERVERS }
+
     private fun deleteFolder(folder: String) {
         val prefix = "$folder/"
         val removedProfiles = SettingsAccess.allServers(project)
@@ -787,47 +833,59 @@ private class ServerProfilesPanel(private val project: Project) : JPanel(BorderL
     }
 }
 
-private class DragDropTracker(
-    private val tree: JTree,
-    private val panel: ServerProfilesPanel,
-    private val owner: Project,
-) : MouseDragHelper<JTree>(owner, tree) {
+// Carries the id of the profile being dragged. A custom flavour keeps foreign drops (files, text) out
+// of the tree, and the drag stays in-process so the id never reaches the system clipboard.
+private val PROFILE_FLAVOR = DataFlavor("application/x-sftp-uploader-profile;class=java.lang.String")
+
+private class ProfileDragData(private val profileId: String) : Transferable {
+    override fun getTransferDataFlavors(): Array<DataFlavor> = arrayOf(PROFILE_FLAVOR)
+    override fun isDataFlavorSupported(flavor: DataFlavor?): Boolean = flavor == PROFILE_FLAVOR
+    override fun getTransferData(flavor: DataFlavor?): Any =
+        if (isDataFlavorSupported(flavor)) profileId else throw UnsupportedFlavorException(flavor)
+}
+
+/** Drags a server row and drops it on a folder, the **Servers** root or the empty background to move it. */
+private class ServerTreeDragHandler(private val panel: ServerProfilesPanel) : TransferHandler() {
     private var dragged: ServerProfile? = null
 
-    override fun canStartDragging(component: JComponent, pressedOnScreenPoint: Point): Boolean =
-        dragged != null
+    override fun getSourceActions(c: JComponent?) = MOVE
 
-    override fun processMousePressed(event: java.awt.event.MouseEvent) {
-        val profile = nodeAt(event.point)?.profile
-        dragged = if (event.button == 1 && profile?.type != ServerType.LOCAL) profile else null
+    override fun createTransferable(c: JComponent?): Transferable? {
+        val profile = (c as? JTree)?.selectionPath?.lastPathComponent
+            ?.let { (it as? ServerNode)?.profile }
+            ?.takeIf { it.type != ServerType.LOCAL }
+        dragged = profile
+        return profile?.let { ProfileDragData(it.id) }
     }
 
-    override fun canFinishDragging(event: java.awt.event.MouseEvent): Boolean {
-        if (dragged == null) return false
-        return nodeAt(event.point)?.isMoveTarget() == true
-    }
+    override fun canImport(comp: JComponent, transferFlavors: Array<out DataFlavor>): Boolean =
+        dragged != null && transferFlavors.any { it == PROFILE_FLAVOR }
 
-    override fun processDragFinish(event: java.awt.event.MouseEvent, pressedOnScreen: Boolean) {
+    // While a drag moves over the tree Swing calls this one. The drop point is taken from the pointer:
+    // during a drag that is exactly where the drop would happen, and it avoids the DropLocation API
+    // that differs between the compile JDK and the IDE runtime.
+    override fun canImport(support: TransferSupport): Boolean {
         val profile = dragged
+        val target = if (profile != null && support.isDataFlavorSupported(PROFILE_FLAVOR))
+            panel.resolveDropTarget(pointerLocation(), profile.id)
+        else
+            null
+        panel.setDragHighlight(target)
+        return target != null
+    }
+
+    override fun importData(support: TransferSupport): Boolean {
+        val profile = dragged ?: return false
+        if (!support.isDataFlavorSupported(PROFILE_FLAVOR)) return false
+        val target = panel.resolveDropTarget(pointerLocation(), profile.id)
         dragged = null
-        if (profile != null) {
-            nodeAt(event.point)?.let { target ->
-                if (target.isMoveTarget()) {
-                    panel.moveProfileToFolder(profile, target.path)
-                }
-            }
-        }
+        panel.setDragHighlight(null)
+        if (target == null) return false
+        panel.moveProfileToFolder(profile, target.path)
+        return true
     }
 
-    override fun processDrag(
-        event: java.awt.event.MouseEvent,
-        pressedOnScreenPoint: Point,
-        currentOnScreenPoint: Point
-    ) {
-    }
-
-    private fun nodeAt(point: Point): ServerNode? =
-        tree.getPathForLocation(point.x, point.y)?.lastPathComponent as? ServerNode
+    private fun pointerLocation(): Point? = MouseInfo.getPointerInfo()?.location
 }
 
 private class ServerNode(
@@ -848,7 +906,7 @@ private class ServerNode(
     override fun getChildCount(): Int = childOrder.size
     override fun getChildAt(index: Int): TreeNode = childOrder[index]
 
-    /** Servers can be dragged into the **Servers** folder and into any folder of their own. */
+    /** Drop targets for a dragged server: the **Servers** folder (the empty background means it too) and any folder. */
     fun isMoveTarget(): Boolean = kind == NodeKind.SERVERS || kind == NodeKind.FOLDER
 
     val displayName: String
@@ -903,6 +961,9 @@ private class CredentialDeleteDialog(
 }
 
 private class ServerNodeRenderer : DefaultTreeCellRenderer() {
+    /** The row the dragged server would land on: painted like a selection while the drag is over it. */
+    var highlightNode: ServerNode? = null
+
     override fun getTreeCellRendererComponent(
         tree: JTree?,
         value: Any?,
@@ -921,6 +982,11 @@ private class ServerNodeRenderer : DefaultTreeCellRenderer() {
             NodeKind.SERVER -> if (node.profile?.type == ServerType.LOCAL) null else this.leafIcon
             NodeKind.CREDENTIAL, NodeKind.FACILITY -> this.leafIcon
             else -> this.openIcon
+        }
+        if (node != null && node === highlightNode) {
+            component.isOpaque = true
+            component.background = this.backgroundSelectionColor ?: UIUtil.getTreeSelectionBackground()
+            component.foreground = this.textSelectionColor ?: UIUtil.getTreeSelectionForeground()
         }
         return component
     }
