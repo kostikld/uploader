@@ -118,6 +118,51 @@ class PathMappingResolverTest {
     }
 
     @Test
+    fun `a pattern ending in a bare globstar keeps only the globstar remainder`() {
+        val result = PathMappingResolver.resolve(
+            project,
+            project.resolve("module/sub-module/target/classes/com/example/Service.class"),
+            listOf(PathMapping("module/*/target/classes/**", "/remote/APP-INF/classes")),
+        )
+
+        assertEquals("/remote/APP-INF/classes/com/example/Service.class", result)
+    }
+
+    @Test
+    fun `the trailing globstar remainder starts below the last literal occurrence`() {
+        val result = PathMappingResolver.resolve(
+            project,
+            project.resolve("a/x/target/classes/com/target/classes/y.class"),
+            listOf(PathMapping("a/*/target/classes/**", "/remote/classes")),
+        )
+
+        assertEquals("/remote/classes/y.class", result)
+    }
+
+    @Test
+    fun `a whole-project globstar keeps the full path`() {
+        val result = PathMappingResolver.resolve(
+            project,
+            project.resolve("any/where/file.txt"),
+            listOf(PathMapping("**", "/remote/all")),
+        )
+
+        assertEquals("/remote/all/any/where/file.txt", result)
+    }
+
+    @Test
+    fun `a pattern ending in a bare globstar resolves a local path`() {
+        val result = PathMappingResolver.resolveLocal(
+            project,
+            project.resolve("module/app/target/classes/com/example/Service.class"),
+            listOf(PathMapping("module/*/target/classes/**", "/remote/APP-INF/classes")),
+            "/local",
+        )
+
+        assertEquals("/local/remote/APP-INF/classes/com/example/Service.class", result)
+    }
+
+    @Test
     fun `most concrete fnmatch pattern wins`() {
         val result = PathMappingResolver.resolve(
             project,

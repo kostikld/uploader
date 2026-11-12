@@ -34,7 +34,7 @@ class ConstantChangesTest {
     @Test
     fun `finds a constant of a nested interface and reports its changed value`() {
         val earlier = """
-            public interface CBMConstants {
+            public interface SampleConstants {
                 interface CollectionManagement {
                     String QUEUE_NAME = "CollectionRequests";
                     String MESSAGE_ATTR_SUSPEND_REASON_ID = "SuspendReasonId";

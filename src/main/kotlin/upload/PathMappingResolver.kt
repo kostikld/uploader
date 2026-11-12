@@ -34,8 +34,9 @@ object PathMappingResolver {
 
     /**
      * Finds the mapping that owns a file. A row whose local path has no wildcard is a direct mapping and
-     * wins over a pattern row; the file keeps everything below the matched local root (or below the
-     * pattern's literal prefix).
+     * wins over a pattern row. The file keeps everything below the matched local root (or below the
+     * pattern's literal prefix), except that a pattern ending in a bare `**` keeps only the path the
+     * globstar matched.
      */
     private fun resolveMatch(
         projectRoot: Path,
@@ -49,30 +50,29 @@ object PathMappingResolver {
         val projectRelative = normalizeLocal(root.relativize(normalizedFile).toString())
         val (direct, patterns) =
             mappings.partition { mapping -> !FnMatch.isPattern(normalizeLocal(mapping.localPath)) }
-        val match = directMatch(direct, projectRelative) ?: fnMatch(patterns, projectRelative) ?: return null
-        val (mapping, localRoot) = match
-        val remainder = if (localRoot.isEmpty()) {
-            projectRelative
-        } else {
-            projectRelative.removePrefix(localRoot).removePrefix("/")
-        }
-        return mapping to remainder
+        return directMatch(direct, projectRelative) ?: fnMatch(patterns, projectRelative)
     }
 
+    /** The winning direct mapping with the path of the file below its local root. */
     private fun directMatch(mappings: List<PathMapping>, projectRelative: String): Pair<PathMapping, String>? =
         mappings
             .mapNotNull { mapping ->
                 val localRoot = normalizeLocal(mapping.localPath)
-                if (!matches(projectRelative, localRoot)) null else mapping to localRoot
+                if (!matches(projectRelative, localRoot)) null
+                else Triple(mapping, localRoot.length, remainderBelow(projectRelative, localRoot))
             }
-            .maxByOrNull { (_, localRoot) -> localRoot.length }
+            .maxByOrNull { (_, rootLength, _) -> rootLength }
+            ?.let { (mapping, _, remainder) -> mapping to remainder }
 
     /**
      * Matches a file against the configured patterns. The most concrete pattern wins: the longest
      * literal prefix, then the most literal characters, then the fewest wildcards, then the configured order.
+     * A pattern ending in a bare `**` keeps only what the globstar matched, so the remote path starts
+     * below the last directory the pattern spells out; other patterns keep everything below their
+     * literal prefix.
      */
     private fun fnMatch(patterns: List<PathMapping>, projectRelative: String): Pair<PathMapping, String>? {
-        val candidates = patterns
+        val candidate = patterns
             .mapIndexed { order, mapping ->
                 val pattern = normalizeLocal(mapping.localPath)
                 when {
@@ -85,7 +85,9 @@ object PathMappingResolver {
             .sortedWith(moreConcreteFirst)
             .firstOrNull()
             ?: return null
-        return candidates.mapping to candidates.prefix
+        val remainder = FnMatch.trailingGlobstarRemainder(candidate.pattern, projectRelative)
+            ?: remainderBelow(projectRelative, candidate.prefix)
+        return candidate.mapping to remainder
     }
 
     private val moreConcreteFirst = Comparator<FnPatternMatch> { first, second ->
@@ -125,6 +127,10 @@ object PathMappingResolver {
 
     private fun matches(file: String, localRoot: String): Boolean =
         localRoot.isEmpty() || file == localRoot || file.startsWith("$localRoot/")
+
+    /** The path of the file below the matched local root. */
+    private fun remainderBelow(file: String, localRoot: String): String =
+        if (localRoot.isEmpty()) file else file.removePrefix(localRoot).removePrefix("/")
 
     private fun joinRemote(remoteRoot: String, remainder: String): String {
         val root = normalizeRemote(remoteRoot).trimEnd('/')

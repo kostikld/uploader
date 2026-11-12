@@ -96,9 +96,18 @@ directory, so the same table also takes patterns:
 A row is read as a pattern when its local side contains `*`, `?`, or `[`. Patterns are matched against
 the project-relative path of a file: `*` matches any characters (including `/`), `?` matches one
 character, and `[a-z]` (or `[!a-z]` for the opposite) matches a character class. Matching is
-case-sensitive. Everything below the pattern's wildcard-free prefix is kept, the same way path mappings
-keep the path below their local directory: with the mapping above, `src/web/js/app.js` is uploaded to
-`/var/www/static/js/app.js`.
+case-sensitive.
+
+What the plugin keeps of the local path decides the folders it creates on the server:
+
+- A pattern whose last part is `**` keeps only what that `**` matched, so the remote path starts below
+  the last directory written in the pattern. With `src/web/**` above, `src/web/js/app.js` is uploaded
+  to `/var/www/static/js/app.js`. A wildcard earlier in the pattern does not move that start:
+  `module/*/target/classes/**` with remote `/app/APP-INF/classes` uploads
+  `module/sub-module/target/classes/com/X.class` to `/app/APP-INF/classes/com/X.class`.
+- Any other pattern keeps everything below its wildcard-free prefix: with `target/classes/**/ui/*.js`,
+  `target/classes/com/example/ui/View.js` keeps `com/example/ui/View.js`.
+- A direct path keeps everything below the local directory, the same way.
 
 A direct path always wins over a pattern for the same file. When several patterns match a file, the
 most concrete one is used: the longest wildcard-free prefix first, then the fewest wildcards, and
