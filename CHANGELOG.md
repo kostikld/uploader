@@ -4,6 +4,8 @@
 
 ## Unreleased
 
+## 1.0.19 - 2026-11-12
+
 - A fnmatch pattern ending in `**` now puts files below the remote directory using only the path the
   trailing `**` matched, so `my-module/*/target/classes/**` uploads ``my-module/app/target/classes/com/X.class`
   to `<remote>/com/X.class` instead of recreating the folders between the pattern's first `*` and its `**`
