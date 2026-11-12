@@ -4,6 +4,12 @@
 
 ## Unreleased
 
+- A fnmatch pattern ending in `**` now puts files below the remote directory using only the path the
+  trailing `**` matched, so `my-module/*/target/classes/**` uploads ``my-module/app/target/classes/com/X.class`
+  to `<remote>/com/X.class` instead of recreating the folders between the pattern's first `*` and its `**`
+  on the server. Other patterns keep the path below their wildcard-free prefix as before.
+- The path mappings table explains how the folders below a remote directory are built for each kind of row.
+
 ## 1.0.16 - 2026-11-09
 
 - A username is configured once as a **credentials** entry and picked by any number of servers, instead of typing

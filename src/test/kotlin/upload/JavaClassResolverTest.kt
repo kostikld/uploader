@@ -64,7 +64,7 @@ class JavaClassResolverTest {
 
      @Test
      fun `conventional class roots include maven and gradle outputs`() {
-         val sourceRoot = root.resolve("jbss-cbm-api/src/main/java")
+         val sourceRoot = root.resolve("sample-api/src/main/java")
 
          val roots = JavaClassResolver.conventionalClassRoots(sourceRoot)
 
@@ -75,9 +75,9 @@ class JavaClassResolverTest {
 
      @Test
      fun `resolves class from conventional maven output root when model has no class root`() {
-         val sourceRoot = root.resolve("jbss-cbm-api/src/main/java")
+         val sourceRoot = root.resolve("sample-api/src/main/java")
          val source = sourceRoot.resolve("com/pkg/Foo.java")
-         val mavenClasses = root.resolve("jbss-cbm-api/target/classes")
+         val mavenClasses = root.resolve("sample-api/target/classes")
          create(mavenClasses.resolve("com/pkg/Foo.class"))
 
          val result = JavaClassResolver.mapClassFile(source, sourceRoot, JavaClassResolver.conventionalClassRoots(sourceRoot))

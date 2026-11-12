@@ -10,13 +10,38 @@ import java.util.concurrent.ConcurrentHashMap
  */
 object FnMatch {
     private val compiled = ConcurrentHashMap<String, java.util.regex.Pattern>()
+    private val capturing = ConcurrentHashMap<String, java.util.regex.Pattern>()
 
     fun matches(pattern: String, path: String): Boolean =
         compiled.computeIfAbsent(pattern) { key -> regex(key) }.matcher(path).matches()
 
     /**
+     * For a pattern whose last segment is a bare `**`, the part of the matched path that globstar
+     * matched; a file keeps only this part below the remote directory, so the path starts below the
+     * last directory the pattern spells out. Greedy matching picks the last occurrence of the
+     * literal segments that precede the globstar. Null when the pattern has no trailing globstar
+     * or the path does not match it.
+     */
+    fun trailingGlobstarRemainder(pattern: String, path: String): String? {
+        if (globstarHead(pattern) == null) return null
+        val matcher = capturing
+            .computeIfAbsent(pattern) { key -> java.util.regex.Pattern.compile(translate(globstarHead(key)!!) + "(.*)") }
+            .matcher(path)
+        return if (matcher.matches()) matcher.group(1) else null
+    }
+
+    /** The pattern with its trailing `**` segment turned into the literal path it forces, or null without one. */
+    private fun globstarHead(pattern: String): String? =
+        when {
+            pattern.endsWith("/**") -> pattern.removeSuffix("/**") + "/"
+            pattern == "**" -> ""
+            else -> null
+        }
+
+    /**
      * Leading path segments of the pattern that contain no wildcard. Files matching the pattern
-     * keep everything below this prefix, the same way they keep the path below the root of a direct mapping.
+     * keep everything below this prefix, the same way they keep the path below the root of a direct
+     * mapping; a pattern whose last segment is a bare `**` keeps only the globstar remainder instead.
      */
     fun literalPrefix(pattern: String): String =
         pattern.split('/')

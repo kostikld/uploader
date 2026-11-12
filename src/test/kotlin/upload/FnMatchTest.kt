@@ -2,6 +2,7 @@ package org.kavo.uploader.upload
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -50,6 +51,23 @@ class FnMatchTest {
         assertEquals("", FnMatch.literalPrefix("**/*.js"))
         assertEquals("src/web/app.js", FnMatch.literalPrefix("src/web/app.js"))
         assertEquals("src", FnMatch.literalPrefix("src/*/app.js"))
+    }
+
+    @Test
+    fun `a trailing globstar captures the remainder`() {
+        assertEquals(
+            "com/example/Service.class",
+            FnMatch.trailingGlobstarRemainder("module/*/target/classes/**", "module/app/target/classes/com/example/Service.class"),
+        )
+        assertEquals("main/web/app.js", FnMatch.trailingGlobstarRemainder("src/**", "src/main/web/app.js"))
+        assertEquals("a/b.txt", FnMatch.trailingGlobstarRemainder("**", "a/b.txt"))
+    }
+
+    @Test
+    fun `a trailing globstar remainder is null without a globstar or a match`() {
+        assertNull(FnMatch.trailingGlobstarRemainder("src/web/**.js", "src/web/app.js"))
+        assertNull(FnMatch.trailingGlobstarRemainder("src/classes", "src/classes/a.js"))
+        assertNull(FnMatch.trailingGlobstarRemainder("src/**", "lib/main.js"))
     }
 
     @Test

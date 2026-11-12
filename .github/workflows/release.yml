@@ -5,11 +5,11 @@ name: Release
 # Marketplace and commits the stamped CHANGELOG.md section back to `master`. There is no bump PR and
 # no second merge: the release is complete when the check on the merged MR goes green.
 #
-# `CHANGELOG.md` is never written by a workflow step: `patchChangelog` is a dependency of `publishPlugin`
+# `patchChangelog` is a dependency of `publishPlugin`
 # (org/jetbrains/intellij/platform/gradle/plugins/changelog.kt:28-30) and it turns `## Unreleased` into
-# `## <version> - <date>` with the plugin's default header `${version} - ${date()}`; the step below only
-# commits what Gradle produced. The uploaded change notes come from that same stamped section
-# (changelog.kt:57-58 -> getOrNull(version) ?: getUnreleased()).
+# `## <version> - <date>` with the plugin's default header `${version} - ${date()}`; the commit step below
+# normally only has to commit what Gradle produced. The uploaded change notes come from that same stamped
+# section (changelog.kt:57-58 -> getOrNull(version) ?: getUnreleased()).
 #
 # `version` is bumped and pushed to `master` *before* the upload, because that push is the claim on
 # the number: two MRs merged back to back would otherwise read the same `master` tip and compute the
@@ -19,9 +19,11 @@ name: Release
 # The heading stamped into CHANGELOG.md doubles as the record that a version was already published,
 # which is what the duplicate-upload guard reads: the Marketplace refuses an upload of a version it has
 # already, and an interrupted publish would otherwise retry it. An empty `## Unreleased` section makes
-# patchChangelog skip itself through StopActionException (changelog/tasks/PatchChangelogTask.kt:118-121)
-# without failing the build: such a release ships with empty change notes and gets no heading, and the
-# last step warns about it.
+# patchChangelog skip itself through StopActionException (changelog/tasks/PatchChangelogTask.kt:118-121,
+# and `patchEmpty` defaults to true, ChangelogPlugin.kt:63) without failing the build *and* without
+# touching the file: such a release ships with empty change notes, so the commit step stamps the heading
+# the task skipped and commits that instead. Every published version therefore gets a heading, which is
+# what keeps the duplicate-upload guard and the last step's check worth having.
 #
 # Requires two repository secrets: `JB_MARKETPLACE_TOKEN` (build.gradle.kts reads that exact variable
 # name as the intellijPlatform.publishing token) and `MASTER_PUSH_TOKEN` (a fine-grained PAT of the repo
@@ -118,7 +120,7 @@ jobs:
           notes=$(awk '/^## Unreleased[[:space:]]*$/{s=1;next} s&&/^## /{exit} s&&NF{n++} END{print n+0}' CHANGELOG.md)
           echo "Unreleased bullet lines: $notes" | tee -a "$GITHUB_STEP_SUMMARY"
           if [ "$notes" -eq 0 ]; then
-            echo "No release notes: the Marketplace entry gets empty change notes and CHANGELOG.md gets no heading." >> "$GITHUB_STEP_SUMMARY"
+            echo "No release notes: the Marketplace entry gets empty change notes, and the heading is stamped with no body under it." >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Bump the version on master
@@ -189,14 +191,31 @@ jobs:
       - name: Commit the stamped changelog to master
         run: |
           set -euo pipefail
-          if git diff --quiet -- CHANGELOG.md; then
-            echo "CHANGELOG.md was not stamped: patchChangelog skipped (empty release notes) or the section already existed." | tee -a "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
           v=$(grep -m1 '^version=' gradle.properties | cut -d= -f2)
+          if git diff --quiet -- CHANGELOG.md; then
+            if grep -q "^## $v - " CHANGELOG.md; then
+              echo "CHANGELOG.md already has a heading for v$v: nothing to commit." | tee -a "$GITHUB_STEP_SUMMARY"
+              exit 0
+            fi
+            # Gradle left the file alone: patchChangelog threw StopActionException for the empty release
+            # note, which keeps the build green and never reaches its writeText(). Stamp the heading that
+            # task would have written - `## <version> - <date>` from ChangelogPlugin.kt:56-60, DATE_PATTERN
+            # yyyy-MM-dd, and the runner's clock is UTC - under `## Unreleased`, where the task's default
+            # keepUnreleasedSection=true would have left it.
+            d=$(date +%Y-%m-%d)
+            if grep -q '^## Unreleased[[:space:]]*$' CHANGELOG.md; then
+              awk -v h="## $v - $d" '{print} !stamped && /^## Unreleased[[:space:]]*$/ {print ""; print h; stamped=1}' \
+                CHANGELOG.md > CHANGELOG.md.tmp
+            else
+              awk -v h="## $v - $d" '!stamped && /^## / {print h; print ""; stamped=1} {print}' \
+                CHANGELOG.md > CHANGELOG.md.tmp
+            fi
+            mv CHANGELOG.md.tmp CHANGELOG.md
+            echo "patchChangelog skipped the empty release note: stamped '## $v - $d' in its place." | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          # patchChangelog ran as a dependency of publishPlugin and stamped the file in the checkout.
+          # The heading came from patchChangelog, or from the stamp above when it skipped itself.
           git add CHANGELOG.md
           git commit --quiet -m "docs: changelog for v$v"
           # A rejected push here means either another release raced this one (replay the changelog
@@ -227,5 +246,13 @@ jobs:
           set -euo pipefail
           v=$(grep -m1 '^version=' gradle.properties | cut -d= -f2)
           echo "Published version: $v" | tee -a "$GITHUB_STEP_SUMMARY"
-          grep -q "^## $v - " CHANGELOG.md \
-            || echo "::warning::CHANGELOG.md has no heading for $v - the release note is missing or patchChangelog was skipped" >> "$GITHUB_STEP_SUMMARY"
+          # Every published version has a heading now: the commit step stamps one even when
+          # patchChangelog skips itself, so a missing heading here means the commit or the push did not
+          # land. Failing is what keeps the record straight - without it the next release republishes this
+          # version, because the duplicate-upload guard reads that heading.
+          if grep -q "^## $v - " CHANGELOG.md; then
+            echo "CHANGELOG.md has a heading for v$v." | tee -a "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::error::CHANGELOG.md has no heading for $v - the stamp or the push to master did not land" | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi

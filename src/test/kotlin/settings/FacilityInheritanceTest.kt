@@ -7,7 +7,7 @@ import org.junit.Test
 class FacilityInheritanceTest {
     private val facilityMappings = listOf(
         PathMapping("src/main/resources", "/opt/app/resources"),
-        PathMapping("jbssCBM/*/target/classes/*.class", "/opt/app/classes"),
+        PathMapping("module/*/target/classes/*.class", "/opt/app/classes"),
     )
     private val facilityActions = listOf(
         ServerAction(id = "f1", name = "deploy", command = "systemctl restart app"),
@@ -34,7 +34,7 @@ class FacilityInheritanceTest {
         )
         assertEquals(
             listOf(
-                PathMapping("jbssCBM/*/target/classes/*.class", "/opt/app/classes"),
+                PathMapping("module/*/target/classes/*.class", "/opt/app/classes"),
                 PathMapping("src/main/resources", "/opt/other"),
             ),
             merged,
@@ -46,12 +46,12 @@ class FacilityInheritanceTest {
         // A pattern row is replaced the same way a direct path is, and path spelling differences count.
         val merged = mergeMappings(
             facilityMappings,
-            listOf(PathMapping("./jbssCBM/*/target/classes/*.class/", "/opt/own")),
+            listOf(PathMapping("./module/*/target/classes/*.class/", "/opt/own")),
         )
         assertEquals(
             listOf(
                 PathMapping("src/main/resources", "/opt/app/resources"),
-                PathMapping("./jbssCBM/*/target/classes/*.class/", "/opt/own"),
+                PathMapping("./module/*/target/classes/*.class/", "/opt/own"),
             ),
             merged,
         )
@@ -65,7 +65,7 @@ class FacilityInheritanceTest {
         )
         assertEquals(
             listOf(
-                PathMapping("jbssCBM/*/target/classes/*.class", "/opt/app/classes"),
+                PathMapping("module/*/target/classes/*.class", "/opt/app/classes"),
                 PathMapping("extra", "/opt/extra"),
                 PathMapping("src/main/resources", "/opt/other"),
             ),

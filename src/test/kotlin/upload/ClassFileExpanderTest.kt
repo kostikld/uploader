@@ -28,16 +28,16 @@ class ClassFileExpanderTest {
 
     @Test
     fun `includes sibling inner classes of a class file`() {
-        val outer = write("CBMConstants.class")
-        write("CBMConstants\$AddressTypes.class")
-        write("CBMConstants\$AddressTypes\$Kind.class")
+        val outer = write("SampleConstants.class")
+        write("SampleConstants\$AddressTypes.class")
+        write("SampleConstants\$AddressTypes\$Kind.class")
         write("Other.class")
 
         val result = ClassFileExpander.expand(listOf(outer), includeInnerClasses = true)
         val resultNames = result.map { it.fileName.toString() }
 
         assertEquals(
-             listOf("CBMConstants\$AddressTypes\$Kind.class", "CBMConstants\$AddressTypes.class"),
+             listOf("SampleConstants\$AddressTypes\$Kind.class", "SampleConstants\$AddressTypes.class"),
              resultNames.filter { it.contains('$') },
          )
         assertFalse(resultNames.any { it == "Other.class" })
